@@ -56,6 +56,10 @@ class CazcoPay extends PaymentModule
             'min' => '8.0.0',
             'max' => '9.99.99',
         ];
+
+        if ($this->id && !$this->isRegisteredInHook('displayOrderDetail')) {
+            $this->registerHook('displayOrderDetail');
+        }
     }
 
     public function install()
@@ -65,6 +69,7 @@ class CazcoPay extends PaymentModule
         return parent::install()
             && $this->registerHook('paymentOptions')
             && $this->registerHook('paymentReturn')
+            && $this->registerHook('displayOrderDetail')
             && CazcoPayConfig::installDefaults()
             && $this->installOrderStates()
             && $this->installTables();
@@ -435,6 +440,46 @@ class CazcoPay extends PaymentModule
         ]);
 
         return $this->fetch('module:cazcopay/views/templates/hook/payment_return.tpl');
+    }
+
+    public function hookDisplayOrderDetail($params)
+    {
+        if (!$this->active) {
+            return '';
+        }
+
+        $order = null;
+        if (!empty($params['order']) && $params['order'] instanceof Order) {
+            $order = $params['order'];
+        } elseif (!empty($params['order']['id'])) {
+            $order = new Order((int) $params['order']['id']);
+        } elseif (Tools::getValue('id_order')) {
+            $order = new Order((int) Tools::getValue('id_order'));
+        }
+
+        if (!$order instanceof Order || !Validate::isLoadedObject($order) || $order->module !== $this->name) {
+            return '';
+        }
+
+        $pixData = $this->getPixData((int) $order->id);
+        if (!$pixData || $pixData['payment_method'] !== 'pix') {
+            return '';
+        }
+
+        $pixState = (int) Configuration::get(CazcoPayConfig::KEY_OS_PIX);
+        if ((int) $order->current_state !== $pixState) {
+            return '';
+        }
+
+        $currency = new Currency((int) $order->id_currency);
+
+        $this->smarty->assign([
+            'cazco_order' => $pixData,
+            'currency_sign' => $currency->sign,
+            'order_reference' => $order->reference,
+        ]);
+
+        return $this->fetch('module:cazcopay/views/templates/hook/order_detail_pix.tpl');
     }
 
     public function ensurePixOrderState()
