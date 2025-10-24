@@ -27,6 +27,7 @@ class CazcoPayConfig
 
         for ($i = 1; $i <= 12; $i++) {
             $ok = $ok && Configuration::updateValue(self::getInstallmentInterestKey($i), '0.00');
+            $ok = $ok && Configuration::updateValue(self::getInstallmentMinKey($i), '0.00');
         }
         return $ok;
     }
@@ -49,6 +50,7 @@ class CazcoPayConfig
         }
         for ($i = 1; $i <= 12; $i++) {
             $ok = $ok && Configuration::deleteByName(self::getInstallmentInterestKey($i));
+            $ok = $ok && Configuration::deleteByName(self::getInstallmentMinKey($i));
         }
         return $ok;
     }
@@ -99,9 +101,11 @@ class CazcoPayConfig
         $config = [];
         for ($i = 1; $i <= $max; $i++) {
             $interest = (float) Configuration::get(self::getInstallmentInterestKey($i));
+            $minAmount = (float) Configuration::get(self::getInstallmentMinKey($i));
             $config[] = [
                 'number' => $i,
                 'interest' => $interest,
+                'min' => $minAmount,
             ];
         }
 
@@ -111,5 +115,10 @@ class CazcoPayConfig
     public static function getInstallmentInterestKey($n)
     {
         return 'CAZCO_INSTALLMENT_' . (int) $n . '_INTEREST';
+    }
+
+    public static function getInstallmentMinKey($n)
+    {
+        return 'CAZCO_INSTALLMENT_' . (int) $n . '_MIN';
     }
 }

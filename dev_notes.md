@@ -1,18 +1,25 @@
 # Dev Notes – Cazco Pay Module
 
 ## Contexto Atual
+- Documentação oficial da Cazco Pay (API v1.0): <https://cazcopay.readme.io/reference/introducao>.  
+  > Sempre que iniciar uma nova sessão, revisar ou relembrar essa doc para garantir que informações de endpoints, payloads e regras estejam atualizadas.
 - Integramos e estabilizamos o módulo `modules/cazcopay`.
-- Implementamos controle de parcelamento com juros por parcela (config BO + cálculo dinâmico no checkout).
-- Hooks de pagamento (`hookPaymentOptions`) retornam PIX, Boleto e Cartão com detalhes inline e cálculo de parcelas atualizado.
+- Controle de parcelamento configurável no BO:
+  - Máximo de parcelas (1–12).
+  - Juros (%) por parcela.
+  - Valor mínimo do pedido para habilitar cada parcela.
+- Checkout aplica juros e filtra parcelas de acordo com o valor mínimo, atualizando o resumo (“Total do pedido”) conforme seleção.
+- Hooks de pagamento (`hookPaymentOptions`) retornam PIX, Boleto e Cartão com detalhes inline.
 - Carregamento de `CazcoPayConfig` e `CazcoPayLogger` protegido com fallback (`_PS_MODULE_DIR_` → `__DIR__`) e mensagens no `error_log` em caso de falha.
 - Templates em uso:  
   - `views/templates/hook/option_pix.tpl`  
   - `views/templates/hook/option_boleto.tpl`  
-  - `views/templates/hook/option_card.tpl` (formulário com cálculo dinâmico de parcelas/juros).
+  - `views/templates/hook/option_card.tpl` (formulário com cálculo dinâmico de parcelas, juros e valor mínimo).
 
 ## O que já deu certo
-- ✅ Reintrodução do controle de parcelas: configuração no BO (máximo + tabela de juros) e persistência em `Configuration`; cálculo dinâmico no checkout.  
-- ✅ Checkout renderiza normalmente com o módulo ativo (sem HTTP 500).  
+- ✅ Controle de parcelas completo: BO (máximo + juros + valor mínimo) com máscaras automáticas e persistência em `Configuration`.
+- ✅ Checkout recalcula o valor total/parcela, exibe detalhes conforme seleção e respeita os limites mínimos configurados.
+- ✅ PIX, Boleto e Cartão aparecem no checkout sem erro 500.
 - ✅ Logs do Nginx estão habilitados (`nginx/logs/sites/presta`).
 
 ## Próximos Passos Sugeridos

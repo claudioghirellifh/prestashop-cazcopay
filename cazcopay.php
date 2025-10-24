@@ -93,10 +93,15 @@ class CazcoPay extends PaymentModule
 
             for ($i = 1; $i <= 12; $i++) {
                 $interestKey = CazcoPayConfig::getInstallmentInterestKey($i);
+                $minKey = CazcoPayConfig::getInstallmentMinKey($i);
                 $interest = $this->sanitizeDecimal(
                     Tools::getValue($interestKey, Configuration::get($interestKey))
                 );
+                $minValue = $this->sanitizeDecimal(
+                    Tools::getValue($minKey, Configuration::get($minKey))
+                );
                 Configuration::updateValue($interestKey, $interest);
+                Configuration::updateValue($minKey, $minValue);
             }
 
             CazcoPayLogger::log('Configurações salvas', 1);
@@ -257,6 +262,10 @@ class CazcoPay extends PaymentModule
                 CazcoPayConfig::getInstallmentInterestKey($i),
                 Configuration::get(CazcoPayConfig::getInstallmentInterestKey($i))
             );
+            $helper->fields_value[CazcoPayConfig::getInstallmentMinKey($i)] = Tools::getValue(
+                CazcoPayConfig::getInstallmentMinKey($i),
+                Configuration::get(CazcoPayConfig::getInstallmentMinKey($i))
+            );
         }
 
         return $helper->generateForm([$fieldsForm]);
@@ -349,17 +358,30 @@ class CazcoPay extends PaymentModule
             $interestValue = Tools::getValue($interestKey, Configuration::get($interestKey));
 
             $rows .= sprintf(
-                '<tr><td>%1$dx</td><td><input type="text" class="form-control" name="%2$s" value="%3$s" placeholder="0,00" /></td></tr>',
+                '<tr><td>%1$dx</td>'
+                . '<td><input type="text" class="form-control cazco-installment-interest" name="%2$s" value="%3$s" placeholder="0,00" /></td>'
+                . '<td><input type="text" class="form-control cazco-installment-min" name="%4$s" value="%5$s" placeholder="0,00" /></td></tr>',
                 $i,
                 pSQL($interestKey),
-                Tools::safeOutput($interestValue)
+                Tools::safeOutput($interestValue),
+                pSQL(CazcoPayConfig::getInstallmentMinKey($i)),
+                Tools::safeOutput(Tools::getValue(
+                    CazcoPayConfig::getInstallmentMinKey($i),
+                    Configuration::get(CazcoPayConfig::getInstallmentMinKey($i))
+                ))
             );
         }
 
-        $thead = '<thead><tr><th>' . $this->l('Parcelas') . '</th><th>' . $this->l('Juros (%)') . '</th></tr></thead>';
-        $help = '<p class="help-block">' . $this->l('Informe o juros percentual para cada quantidade de parcelas. Apenas até o limite definido acima serão exibidos no checkout.') . '</p>';
+        $thead = '<thead><tr><th>' . $this->l('Parcelas') . '</th><th>' . $this->l('Juros (%)') . '</th><th>' . $this->l('Valor mínimo (R$)') . '</th></tr></thead>';
+        $help = '<p class="help-block">' . $this->l('Informe o juros percentual e o valor mínimo do pedido para cada parcela. Apenas até o limite definido acima serão exibidos no checkout.') . '</p>';
+        $script = '<script>(function(){'
+            . 'function normalizePercent(input){var raw=(input.value||\"\").replace(/,/g,\".\");var num=parseFloat(raw);if(isNaN(num)){num=0;}input.value=num.toFixed(2).replace(\".\",\",\");}'
+            . 'function normalizeCurrency(input){var raw=(input.value||\"\").replace(/\\./g,\"\").replace(/,/g,\".\");var num=parseFloat(raw);if(isNaN(num)){num=0;}input.value=num.toLocaleString(\"pt-BR\",{minimumFractionDigits:2,maximumFractionDigits:2});}'
+            . 'function attach(selector, formatter){document.querySelectorAll(selector).forEach(function(el){el.addEventListener(\"blur\",function(){formatter(el);});});}'
+            . 'if(typeof document!==\"undefined\"){if(document.readyState!==\"loading\"){attach(\".cazco-installment-interest\",normalizePercent);attach(\".cazco-installment-min\",normalizeCurrency);}else{document.addEventListener(\"DOMContentLoaded\",function(){attach(\".cazco-installment-interest\",normalizePercent);attach(\".cazco-installment-min\",normalizeCurrency);});}}'
+            . '})();</script>';
 
-        return '<table class="table table-bordered cazcopay-installments-table">' . $thead . '<tbody>' . $rows . '</tbody></table>' . $help;
+        return '<table class="table table-bordered cazcopay-installments-table">' . $thead . '<tbody>' . $rows . '</tbody></table>' . $help . $script;
     }
 
     private function sanitizeDecimal($value)
