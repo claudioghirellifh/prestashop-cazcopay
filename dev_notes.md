@@ -10,6 +10,7 @@
   - Valor mínimo do pedido para habilitar cada parcela.
 - Checkout aplica juros e filtra parcelas de acordo com o valor mínimo, atualizando o resumo (“Total do pedido”) conforme seleção.
 - Hooks de pagamento (`hookPaymentOptions`) retornam PIX, Boleto e Cartão com detalhes inline.
+- Transações PIX geram pedido automaticamente, usando estado “Aguardando pagamento PIX”, e armazenam QR Code/URL/expiração em `ps_cazcopay_order` para exibição posterior.
 - Carregamento de `CazcoPayConfig` e `CazcoPayLogger` protegido com fallback (`_PS_MODULE_DIR_` → `__DIR__`) e mensagens no `error_log` em caso de falha.
 - Templates em uso:  
   - `views/templates/hook/option_pix.tpl`  

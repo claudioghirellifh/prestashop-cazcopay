@@ -65,14 +65,19 @@ class CazcoPay extends PaymentModule
         return parent::install()
             && $this->registerHook('paymentOptions')
             && $this->registerHook('paymentReturn')
-            && CazcoPayConfig::installDefaults();
+            && CazcoPayConfig::installDefaults()
+            && $this->installOrderStates()
+            && $this->installTables();
     }
 
     public function uninstall()
     {
         CazcoPayLogger::log('Desinstalando módulo Cazco Pay');
 
-        return parent::uninstall() && CazcoPayConfig::remove();
+        return $this->uninstallTables()
+            && $this->uninstallOrderStates()
+            && CazcoPayConfig::remove()
+            && parent::uninstall();
     }
 
     public function getContent()
@@ -412,9 +417,167 @@ class CazcoPay extends PaymentModule
         if (!$this->active) {
             return '';
         }
+
+        /** @var Order $order */
+        $order = isset($params['order']) ? $params['order'] : ($params['objOrder'] ?? null);
+        if (!Validate::isLoadedObject($order) || $order->module !== $this->name) {
+            return '';
+        }
+
+        $pixData = $this->getPixData((int) $order->id);
+        $currency = new Currency((int) $order->id_currency);
+
         $this->smarty->assign([
             'shop_name' => $this->context->shop->name,
+            'cazco_order' => $pixData,
+            'currency_sign' => $currency->sign,
+            'order_reference' => $order->reference,
         ]);
+
         return $this->fetch('module:cazcopay/views/templates/hook/payment_return.tpl');
+    }
+
+    public function ensurePixOrderState()
+    {
+        $idState = (int) Configuration::get(CazcoPayConfig::KEY_OS_PIX);
+        if ($idState && Validate::isLoadedObject(new OrderState($idState))) {
+            return $idState;
+        }
+
+        if ($this->installOrderStates()) {
+            $idState = (int) Configuration::get(CazcoPayConfig::KEY_OS_PIX);
+            if ($idState && Validate::isLoadedObject(new OrderState($idState))) {
+                return $idState;
+            }
+        }
+
+        return 0;
+    }
+
+    protected function installOrderStates()
+    {
+        $idState = (int) Configuration::get(CazcoPayConfig::KEY_OS_PIX);
+        if ($idState && Validate::isLoadedObject(new OrderState($idState))) {
+            return true;
+        }
+
+        $orderState = new OrderState();
+        $orderState->color = '#3429A8';
+        $orderState->module_name = $this->name;
+        $orderState->send_email = false;
+        $orderState->hidden = false;
+        $orderState->logable = false;
+        $orderState->delivery = false;
+        $orderState->shipped = false;
+        $orderState->invoice = false;
+        $orderState->paid = false;
+        $orderState->unremovable = true;
+        $orderState->template = '';
+
+        foreach (Language::getLanguages(false) as $lang) {
+            $orderState->name[(int) $lang['id_lang']] = $this->l('Aguardando pagamento PIX', 'cazcopay');
+        }
+
+        if (!$orderState->add()) {
+            return false;
+        }
+
+        Configuration::updateValue(CazcoPayConfig::KEY_OS_PIX, (int) $orderState->id);
+
+        return true;
+    }
+
+    protected function uninstallOrderStates()
+    {
+        $idState = (int) Configuration::get(CazcoPayConfig::KEY_OS_PIX);
+        if ($idState) {
+            $orderState = new OrderState($idState);
+            if (Validate::isLoadedObject($orderState) && $orderState->module_name === $this->name) {
+                $orderState->delete();
+            }
+        }
+
+        return true;
+    }
+
+    protected function installTables()
+    {
+        $sql = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'cazcopay_order` (
+            `id_cazcopay_order` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `id_order` INT UNSIGNED NOT NULL,
+            `payment_method` VARCHAR(32) NOT NULL,
+            `transaction_id` VARCHAR(128) DEFAULT NULL,
+            `pix_qrcode` TEXT DEFAULT NULL,
+            `pix_url` TEXT DEFAULT NULL,
+            `pix_expiration` DATETIME DEFAULT NULL,
+            `amount` INT UNSIGNED DEFAULT NULL,
+            `payload` LONGTEXT DEFAULT NULL,
+            `date_add` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id_cazcopay_order`),
+            UNIQUE KEY `uniq_order` (`id_order`)
+        ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4';
+
+        return Db::getInstance()->execute($sql);
+    }
+
+    protected function uninstallTables()
+    {
+        return Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'cazcopay_order`');
+    }
+
+    public function savePixData($idOrder, array $data)
+    {
+        $expiration = null;
+        if (!empty($data['expiration'])) {
+            $timestamp = strtotime($data['expiration']);
+            if ($timestamp !== false) {
+                $expiration = date('Y-m-d H:i:s', $timestamp);
+            }
+        }
+
+        $row = [
+            'id_order' => (int) $idOrder,
+            'payment_method' => pSQL($data['payment_method'] ?? 'pix'),
+            'transaction_id' => pSQL($data['transaction_id'] ?? ''),
+            'pix_qrcode' => pSQL($data['qrcode'] ?? '', true),
+            'pix_url' => pSQL($data['url'] ?? '', true),
+            'pix_expiration' => $expiration,
+            'amount' => isset($data['amount']) ? (int) $data['amount'] : null,
+            'payload' => pSQL(isset($data['payload']) ? json_encode($data['payload'], JSON_UNESCAPED_UNICODE) : '', true),
+        ];
+
+        $existing = $this->getPixData($idOrder);
+        if ($existing) {
+            Db::getInstance()->update('cazcopay_order', $row, 'id_order = ' . (int) $idOrder);
+        } else {
+            $row['date_add'] = date('Y-m-d H:i:s');
+            Db::getInstance()->insert('cazcopay_order', $row);
+        }
+    }
+
+    public function getPixData($idOrder)
+    {
+        $sql = new DbQuery();
+        $sql->select('*');
+        $sql->from('cazcopay_order');
+        $sql->where('id_order = ' . (int) $idOrder);
+
+        $row = Db::getInstance()->getRow($sql);
+        if (!$row) {
+            return null;
+        }
+
+        $row['payload'] = $row['payload'] ? json_decode($row['payload'], true) : null;
+        $row['qrcode_image'] = $row['pix_qrcode'] ? $this->buildPixQrCodeUrl($row['pix_qrcode']) : null;
+        $row['pix_expiration_formatted'] = $row['pix_expiration']
+            ? Tools::displayDate($row['pix_expiration'], null, true)
+            : null;
+
+        return $row;
+    }
+
+    protected function buildPixQrCodeUrl($payload)
+    {
+        return 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=' . urlencode($payload);
     }
 }

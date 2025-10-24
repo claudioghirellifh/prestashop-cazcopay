@@ -11,6 +11,7 @@ class CazcoPayConfig
     public const KEY_ENABLE_BOLETO = 'CAZCO_ENABLE_BOLETO';
     public const KEY_ENABLE_CARD = 'CAZCO_ENABLE_CARD';
     public const KEY_INSTALLMENTS_MAX = 'CAZCO_INSTALLMENTS_MAX';
+    public const KEY_OS_PIX = 'CAZCO_OS_PIX';
 
     public static function installDefaults()
     {
@@ -24,6 +25,7 @@ class CazcoPayConfig
         $ok = $ok && Configuration::updateValue(self::KEY_ENABLE_BOLETO, 1);
         $ok = $ok && Configuration::updateValue(self::KEY_ENABLE_CARD, 1);
         $ok = $ok && Configuration::updateValue(self::KEY_INSTALLMENTS_MAX, 12);
+        $ok = $ok && Configuration::updateValue(self::KEY_OS_PIX, 0);
 
         for ($i = 1; $i <= 12; $i++) {
             $ok = $ok && Configuration::updateValue(self::getInstallmentInterestKey($i), '0.00');
@@ -52,6 +54,7 @@ class CazcoPayConfig
             $ok = $ok && Configuration::deleteByName(self::getInstallmentInterestKey($i));
             $ok = $ok && Configuration::deleteByName(self::getInstallmentMinKey($i));
         }
+        $ok = $ok && Configuration::deleteByName(self::KEY_OS_PIX);
         return $ok;
     }
 

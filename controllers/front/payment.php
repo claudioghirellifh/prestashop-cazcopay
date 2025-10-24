@@ -86,16 +86,51 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
                 'amount' => (int) $payload['amount'],
             ]);
 
-            $this->context->smarty->assign([
-                'cazco_pix' => [
-                    'transaction_id' => $transactionId,
-                    'amount_cents' => (int) $payload['amount'],
-                    'qrcode' => isset($pix['qrcode']) ? $pix['qrcode'] : '',
-                    'url' => isset($pix['url']) ? $pix['url'] : '',
-                    'expiration' => isset($pix['expirationDate']) ? $pix['expirationDate'] : null,
-                    'raw' => $body,
-                ],
+            $customer = new Customer((int) $cart->id_customer);
+            $currency = $this->context->currency;
+            $orderState = $this->module->ensurePixOrderState();
+            if (!$orderState) {
+                throw new Exception('Estado de pedido para PIX não configurado.');
+            }
+
+            $this->module->validateOrder(
+                (int) $cart->id,
+                $orderState,
+                (float) $payload['amount'] / 100,
+                $this->module->l('Cazco Pay - PIX', 'payment'),
+                null,
+                ['transaction_id' => $transactionId],
+                (int) $currency->id,
+                false,
+                $customer->secure_key
+            );
+
+            $idOrder = (int) $this->module->currentOrder;
+
+            $this->module->savePixData($idOrder, [
+                'payment_method' => 'pix',
+                'transaction_id' => $transactionId,
+                'qrcode' => isset($pix['qrcode']) ? $pix['qrcode'] : '',
+                'url' => isset($pix['url']) ? $pix['url'] : '',
+                'expiration' => isset($pix['expirationDate']) ? $pix['expirationDate'] : null,
+                'amount' => (int) $payload['amount'],
+                'payload' => $body,
             ]);
+
+            $redirectUrl = $this->context->link->getPageLink(
+                'order-confirmation',
+                true,
+                null,
+                [
+                    'id_cart' => (int) $cart->id,
+                    'id_module' => (int) $this->module->id,
+                    'id_order' => $idOrder,
+                    'key' => $customer->secure_key,
+                ]
+            );
+
+            Tools::redirect($redirectUrl);
+            exit;
         } catch (\Exception $e) {
             \CazcoPayLogger::log('Erro ao criar transação PIX', 3, [
                 'cart_id' => (int) $cart->id,
