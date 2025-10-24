@@ -60,19 +60,30 @@ class CazcoPay extends PaymentModule
         if ($this->id && !$this->isRegisteredInHook('displayOrderDetail')) {
             $this->registerHook('displayOrderDetail');
         }
+        if ($this->id && !$this->isRegisteredInHook('moduleRoutes')) {
+            $this->registerHook('moduleRoutes');
+        }
     }
 
     public function install()
     {
         CazcoPayLogger::log('Instalando módulo Cazco Pay');
 
-        return parent::install()
+        $installed = parent::install()
             && $this->registerHook('paymentOptions')
             && $this->registerHook('paymentReturn')
             && $this->registerHook('displayOrderDetail')
+            && $this->registerHook('moduleRoutes')
             && CazcoPayConfig::installDefaults()
             && $this->installOrderStates()
             && $this->installTables();
+
+        if ($installed) {
+            $this->ensureWebhookSecret();
+            $this->ensureFriendlyUrlForWebhook();
+        }
+
+        return $installed;
     }
 
     public function uninstall()
@@ -133,6 +144,15 @@ class CazcoPay extends PaymentModule
     protected function renderForm()
     {
         $defaultLang = (int) Configuration::get('PS_LANG_DEFAULT');
+        $webhookUrl = $this->getWebhookUrl();
+        $fallbackWebhookUrl = $this->getWebhookFallbackUrl();
+        $webhookInfoHtml = sprintf(
+            '<div class="alert alert-info"><p>%s</p><p><code>%s</code></p><p class="small text-muted">%s <code>%s</code></p></div>',
+            $this->l('Informe esta URL no painel da Cazco Pay para receber os postbacks:'),
+            Tools::safeOutput($webhookUrl),
+            $this->l('Endereço alternativo (sem Friendly URL):'),
+            Tools::safeOutput($fallbackWebhookUrl)
+        );
 
         $fieldsForm = [
             'form' => [
@@ -141,6 +161,11 @@ class CazcoPay extends PaymentModule
                     'icon' => 'icon-cogs',
                 ],
                 'input' => [
+                    [
+                        'type' => 'html',
+                        'name' => 'webhook_info',
+                        'html_content' => $webhookInfoHtml,
+                    ],
                     [
                         'type' => 'select',
                         'label' => $this->l('Ambiente'),
@@ -341,6 +366,101 @@ class CazcoPay extends PaymentModule
         ]);
 
         return $options;
+    }
+
+    public function hookModuleRoutes($params)
+    {
+        $secret = $this->ensureWebhookSecret();
+
+        if (!Configuration::get('PS_REWRITING_SETTINGS')) {
+            $this->ensureFriendlyUrlForWebhook();
+        }
+
+        return [
+            'module-cazcopay-webhook' => [
+                'controller' => 'webhook',
+                'rule' => 'cazcopay/webhook/' . $secret,
+                'keywords' => [
+                    'token' => [
+                        'regexp' => '[_A-Za-z0-9-]{8,}',
+                    ],
+                ],
+                'params' => [
+                    'fc' => 'module',
+                    'module' => $this->name,
+                    'token' => $secret,
+                ],
+            ],
+        ];
+    }
+
+    private function ensureWebhookSecret()
+    {
+        $secret = CazcoPayConfig::getWebhookSecret();
+
+        if (!is_string($secret) || strlen($secret) < 16) {
+            $secret = CazcoPayConfig::refreshWebhookSecret();
+            CazcoPayLogger::log('Webhook secret regenerado automaticamente.', 1);
+        }
+
+        return $secret;
+    }
+
+    private function ensureFriendlyUrlForWebhook()
+    {
+        $this->ensureWebhookSecret();
+
+        $wasEnabled = (bool) Configuration::get('PS_REWRITING_SETTINGS');
+
+        if ($wasEnabled) {
+            return;
+        }
+
+        Configuration::updateValue('PS_REWRITING_SETTINGS', 1);
+
+        try {
+            if (method_exists('Tools', 'generateHtaccess')) {
+                Tools::generateHtaccess();
+            }
+
+            CazcoPayLogger::log('Friendly URLs habilitadas automaticamente para expor /cazcopay/webhook.', 1);
+        } catch (\Exception $e) {
+            Configuration::updateValue('PS_REWRITING_SETTINGS', (int) $wasEnabled);
+            CazcoPayLogger::log('Falha ao habilitar Friendly URLs automaticamente: ' . $e->getMessage(), 3);
+        }
+    }
+
+    private function getWebhookUrl()
+    {
+        $secret = $this->ensureWebhookSecret();
+        $url = $this->context->link->getModuleLink(
+            $this->name,
+            'webhook',
+            ['token' => $secret],
+            true
+        );
+
+        if (Configuration::get('PS_REWRITING_SETTINGS')) {
+            $queryPos = strpos($url, '?');
+            if (false !== $queryPos) {
+                $url = substr($url, 0, $queryPos);
+            }
+        }
+
+        return $url;
+    }
+
+    private function getWebhookFallbackUrl()
+    {
+        $secret = $this->ensureWebhookSecret();
+        $baseUrl = rtrim($this->context->shop->getBaseURL(true), '/');
+
+        return sprintf(
+            '%s/index.php?fc=module&module=%s&controller=webhook&token=%s',
+            $baseUrl,
+            $this->name,
+            $secret
+        );
     }
 
     private function buildOption($method, $label, $additionalInformation)

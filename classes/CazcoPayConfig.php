@@ -12,6 +12,7 @@ class CazcoPayConfig
     public const KEY_ENABLE_CARD = 'CAZCO_ENABLE_CARD';
     public const KEY_INSTALLMENTS_MAX = 'CAZCO_INSTALLMENTS_MAX';
     public const KEY_OS_PIX = 'CAZCO_OS_PIX';
+    public const KEY_WEBHOOK_SECRET = 'CAZCO_WEBHOOK_SECRET';
 
     public static function installDefaults()
     {
@@ -26,6 +27,7 @@ class CazcoPayConfig
         $ok = $ok && Configuration::updateValue(self::KEY_ENABLE_CARD, 1);
         $ok = $ok && Configuration::updateValue(self::KEY_INSTALLMENTS_MAX, 12);
         $ok = $ok && Configuration::updateValue(self::KEY_OS_PIX, 0);
+        $ok = $ok && Configuration::updateValue(self::KEY_WEBHOOK_SECRET, Tools::passwdGen(32));
 
         for ($i = 1; $i <= 12; $i++) {
             $ok = $ok && Configuration::updateValue(self::getInstallmentInterestKey($i), '0.00');
@@ -47,6 +49,7 @@ class CazcoPayConfig
             self::KEY_ENABLE_BOLETO,
             self::KEY_ENABLE_CARD,
             self::KEY_INSTALLMENTS_MAX,
+            self::KEY_WEBHOOK_SECRET,
         ] as $key) {
             $ok = $ok && Configuration::deleteByName($key);
         }
@@ -123,5 +126,18 @@ class CazcoPayConfig
     public static function getInstallmentMinKey($n)
     {
         return 'CAZCO_INSTALLMENT_' . (int) $n . '_MIN';
+    }
+
+    public static function getWebhookSecret()
+    {
+        return (string) Configuration::get(self::KEY_WEBHOOK_SECRET);
+    }
+
+    public static function refreshWebhookSecret()
+    {
+        $secret = Tools::passwdGen(32);
+        Configuration::updateValue(self::KEY_WEBHOOK_SECRET, $secret);
+
+        return $secret;
     }
 }
