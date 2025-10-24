@@ -19,6 +19,7 @@
 ## O que já deu certo
 - ✅ Controle de parcelas completo: BO (máximo + juros + valor mínimo) com máscaras automáticas e persistência em `Configuration`.
 - ✅ Checkout recalcula o valor total/parcela, exibe detalhes conforme seleção e respeita os limites mínimos configurados.
+- ✅ Fluxo PIX integrado à API `/transactions`: gera PIX, mostra “copia e cola”, link, expiração e registra logs detalhados.
 - ✅ PIX, Boleto e Cartão aparecem no checkout sem erro 500.
 - ✅ Logs do Nginx estão habilitados (`nginx/logs/sites/presta`).
 

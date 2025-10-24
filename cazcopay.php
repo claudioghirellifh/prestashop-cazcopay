@@ -8,12 +8,16 @@ use PrestaShop\PrestaShop\Core\Payment\PaymentOption;
 
 $configPath = _PS_MODULE_DIR_ . 'cazcopay/classes/CazcoPayConfig.php';
 $loggerPath = _PS_MODULE_DIR_ . 'cazcopay/classes/CazcoPayLogger.php';
+$apiClientPath = _PS_MODULE_DIR_ . 'cazcopay/classes/CazcoPayApiClient.php';
 
 if (!is_file($configPath)) {
     $configPath = __DIR__ . '/classes/CazcoPayConfig.php';
 }
 if (!is_file($loggerPath)) {
     $loggerPath = __DIR__ . '/classes/CazcoPayLogger.php';
+}
+if (!is_file($apiClientPath)) {
+    $apiClientPath = __DIR__ . '/classes/CazcoPayApiClient.php';
 }
 
 if (!is_file($configPath)) {
@@ -26,6 +30,11 @@ if (!is_file($loggerPath)) {
     error_log('[CazcoPay] Logger path not found: ' . $loggerPath);
 } else {
     require_once $loggerPath;
+}
+if (!is_file($apiClientPath)) {
+    error_log('[CazcoPay] ApiClient path not found: ' . $apiClientPath);
+} else {
+    require_once $apiClientPath;
 }
 
 class CazcoPay extends PaymentModule
