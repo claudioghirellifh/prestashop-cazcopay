@@ -47,7 +47,11 @@
       window.__cazcoCardInit = true;
       var totalCents = {$cart_total_cents|intval};
       var currency = '{$currency_iso|escape:"javascript"}' || 'BRL';
+      var installmentsData = {$installments_config_json|default:'[]' nofilter};
       {literal}
+      if (!Array.isArray(installmentsData) || !installmentsData.length) {
+        installmentsData = [{number: 1, interest: 0}];
+      }
       var brandSpan = document.getElementById('cc-brand');
       var ccNum = document.getElementById('cc-number');
       var ccCvv = document.getElementById('cc-cvv');
@@ -80,13 +84,38 @@
 
       if (instSel) {
         instSel.innerHTML = '';
-        for (var i = 1; i <= 12; i++) {
+        installmentsData.sort(function(a, b) {
+          return (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0);
+        });
+        var seen = {};
+        installmentsData.forEach(function(inst) {
+          var number = parseInt(inst.number, 10);
+          if (!number || number < 1) {
+            number = 1;
+          }
+          if (number > 12) {
+            number = 12;
+          }
+          if (seen[number]) {
+            return;
+          }
+          seen[number] = true;
+          var interest = parseFloat(inst.interest || 0);
+          if (!isFinite(interest)) {
+            interest = 0;
+          }
+          var totalFinal = Math.round(totalCents * (1 + (interest / 100)));
+          var per = Math.round(totalFinal / number);
+
           var opt = document.createElement('option');
-          opt.value = i;
-          var per = Math.round(totalCents / i);
-          opt.textContent = i + 'x de ' + fmt(per);
+          opt.value = number;
+          var label = number + 'x de ' + fmt(per);
+          if (interest > 0) {
+            label += ' (' + interest.toFixed(2).replace('.', ',') + '%)';
+          }
+          opt.textContent = label;
           instSel.appendChild(opt);
-        }
+        });
       }
 
       if (ccNum) {

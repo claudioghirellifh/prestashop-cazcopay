@@ -10,6 +10,7 @@ class CazcoPayConfig
     public const KEY_ENABLE_PIX = 'CAZCO_ENABLE_PIX';
     public const KEY_ENABLE_BOLETO = 'CAZCO_ENABLE_BOLETO';
     public const KEY_ENABLE_CARD = 'CAZCO_ENABLE_CARD';
+    public const KEY_INSTALLMENTS_MAX = 'CAZCO_INSTALLMENTS_MAX';
 
     public static function installDefaults()
     {
@@ -22,6 +23,11 @@ class CazcoPayConfig
         $ok = $ok && Configuration::updateValue(self::KEY_ENABLE_PIX, 1);
         $ok = $ok && Configuration::updateValue(self::KEY_ENABLE_BOLETO, 1);
         $ok = $ok && Configuration::updateValue(self::KEY_ENABLE_CARD, 1);
+        $ok = $ok && Configuration::updateValue(self::KEY_INSTALLMENTS_MAX, 12);
+
+        for ($i = 1; $i <= 12; $i++) {
+            $ok = $ok && Configuration::updateValue(self::getInstallmentInterestKey($i), '0.00');
+        }
         return $ok;
     }
 
@@ -37,8 +43,12 @@ class CazcoPayConfig
             self::KEY_ENABLE_PIX,
             self::KEY_ENABLE_BOLETO,
             self::KEY_ENABLE_CARD,
+            self::KEY_INSTALLMENTS_MAX,
         ] as $key) {
             $ok = $ok && Configuration::deleteByName($key);
+        }
+        for ($i = 1; $i <= 12; $i++) {
+            $ok = $ok && Configuration::deleteByName(self::getInstallmentInterestKey($i));
         }
         return $ok;
     }
@@ -70,4 +80,36 @@ class CazcoPayConfig
             : 'https://api.cazcopay.com/v1';
     }
 
+    public static function getInstallmentsMax()
+    {
+        $max = (int) Configuration::get(self::KEY_INSTALLMENTS_MAX);
+        if ($max < 1) {
+            $max = 1;
+        }
+        if ($max > 12) {
+            $max = 12;
+        }
+
+        return $max;
+    }
+
+    public static function getInstallmentsConfig()
+    {
+        $max = self::getInstallmentsMax();
+        $config = [];
+        for ($i = 1; $i <= $max; $i++) {
+            $interest = (float) Configuration::get(self::getInstallmentInterestKey($i));
+            $config[] = [
+                'number' => $i,
+                'interest' => $interest,
+            ];
+        }
+
+        return $config;
+    }
+
+    public static function getInstallmentInterestKey($n)
+    {
+        return 'CAZCO_INSTALLMENT_' . (int) $n . '_INTEREST';
+    }
 }

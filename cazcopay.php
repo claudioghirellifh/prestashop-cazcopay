@@ -78,6 +78,8 @@ class CazcoPay extends PaymentModule
             $enablePix = (int) Tools::getValue(CazcoPayConfig::KEY_ENABLE_PIX);
             $enableBoleto = (int) Tools::getValue(CazcoPayConfig::KEY_ENABLE_BOLETO);
             $enableCard = (int) Tools::getValue(CazcoPayConfig::KEY_ENABLE_CARD);
+            $installmentsMax = (int) Tools::getValue(CazcoPayConfig::KEY_INSTALLMENTS_MAX, CazcoPayConfig::getInstallmentsMax());
+            $installmentsMax = max(1, min(12, $installmentsMax));
 
             Configuration::updateValue(CazcoPayConfig::KEY_ENV, $env);
             Configuration::updateValue(CazcoPayConfig::KEY_SB_SK, $sbSk);
@@ -87,6 +89,15 @@ class CazcoPay extends PaymentModule
             Configuration::updateValue(CazcoPayConfig::KEY_ENABLE_PIX, $enablePix);
             Configuration::updateValue(CazcoPayConfig::KEY_ENABLE_BOLETO, $enableBoleto);
             Configuration::updateValue(CazcoPayConfig::KEY_ENABLE_CARD, $enableCard);
+            Configuration::updateValue(CazcoPayConfig::KEY_INSTALLMENTS_MAX, $installmentsMax);
+
+            for ($i = 1; $i <= 12; $i++) {
+                $interestKey = CazcoPayConfig::getInstallmentInterestKey($i);
+                $interest = $this->sanitizeDecimal(
+                    Tools::getValue($interestKey, Configuration::get($interestKey))
+                );
+                Configuration::updateValue($interestKey, $interest);
+            }
 
             CazcoPayLogger::log('Configurações salvas', 1);
             $output .= $this->displayConfirmation($this->l('Configurações atualizadas com sucesso.'));
@@ -198,6 +209,23 @@ class CazcoPay extends PaymentModule
                             ],
                         ],
                     ],
+                    [
+                        'type' => 'select',
+                        'label' => $this->l('Máximo de parcelas exibidas'),
+                        'name' => CazcoPayConfig::KEY_INSTALLMENTS_MAX,
+                        'options' => [
+                            'query' => $this->buildInstallmentsLimitOptions(),
+                            'id' => 'id',
+                            'name' => 'name',
+                        ],
+                        'desc' => $this->l('Quantidade máxima de parcelas para cartão (1 a 12).'),
+                    ],
+                    [
+                        'type' => 'html',
+                        'label' => $this->l('Configuração de parcelas'),
+                        'name' => 'installments_table',
+                        'html_content' => $this->renderInstallmentsTable(),
+                    ],
                 ],
                 'submit' => [
                     'title' => $this->l('Salvar'),
@@ -222,7 +250,14 @@ class CazcoPay extends PaymentModule
             CazcoPayConfig::KEY_ENABLE_PIX => (int) Configuration::get(CazcoPayConfig::KEY_ENABLE_PIX),
             CazcoPayConfig::KEY_ENABLE_BOLETO => (int) Configuration::get(CazcoPayConfig::KEY_ENABLE_BOLETO),
             CazcoPayConfig::KEY_ENABLE_CARD => (int) Configuration::get(CazcoPayConfig::KEY_ENABLE_CARD),
+            CazcoPayConfig::KEY_INSTALLMENTS_MAX => CazcoPayConfig::getInstallmentsMax(),
         ];
+        for ($i = 1; $i <= 12; $i++) {
+            $helper->fields_value[CazcoPayConfig::getInstallmentInterestKey($i)] = Tools::getValue(
+                CazcoPayConfig::getInstallmentInterestKey($i),
+                Configuration::get(CazcoPayConfig::getInstallmentInterestKey($i))
+            );
+        }
 
         return $helper->generateForm([$fieldsForm]);
     }
@@ -239,12 +274,18 @@ class CazcoPay extends PaymentModule
         $cart = $this->context->cart;
         $currency = $this->context->currency;
         $totalAmountCents = (int) round($cart->getOrderTotal(true, Cart::BOTH) * 100);
+        $installmentsConfig = CazcoPayConfig::getInstallmentsConfig();
 
         // Variáveis comuns para templates inline
         $this->context->smarty->assign([
             'cart_total_cents' => $totalAmountCents,
             'currency_iso' => $currency->iso_code,
             'currency_sign' => $currency->sign,
+            'installments_config' => $installmentsConfig,
+            'installments_config_json' => json_encode(
+                $installmentsConfig,
+                JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+            ),
         ]);
 
         if (Configuration::get(CazcoPayConfig::KEY_ENABLE_PIX)) {
@@ -285,6 +326,54 @@ class CazcoPay extends PaymentModule
         $option->setAdditionalInformation($additionalInformation);
 
         return $option;
+    }
+
+    private function buildInstallmentsLimitOptions()
+    {
+        $list = [];
+        for ($i = 1; $i <= 12; $i++) {
+            $list[] = [
+                'id' => $i,
+                'name' => sprintf('%dx', $i),
+            ];
+        }
+
+        return $list;
+    }
+
+    private function renderInstallmentsTable()
+    {
+        $rows = '';
+        for ($i = 1; $i <= 12; $i++) {
+            $interestKey = CazcoPayConfig::getInstallmentInterestKey($i);
+            $interestValue = Tools::getValue($interestKey, Configuration::get($interestKey));
+
+            $rows .= sprintf(
+                '<tr><td>%1$dx</td><td><input type="text" class="form-control" name="%2$s" value="%3$s" placeholder="0,00" /></td></tr>',
+                $i,
+                pSQL($interestKey),
+                Tools::safeOutput($interestValue)
+            );
+        }
+
+        $thead = '<thead><tr><th>' . $this->l('Parcelas') . '</th><th>' . $this->l('Juros (%)') . '</th></tr></thead>';
+        $help = '<p class="help-block">' . $this->l('Informe o juros percentual para cada quantidade de parcelas. Apenas até o limite definido acima serão exibidos no checkout.') . '</p>';
+
+        return '<table class="table table-bordered cazcopay-installments-table">' . $thead . '<tbody>' . $rows . '</tbody></table>' . $help;
+    }
+
+    private function sanitizeDecimal($value)
+    {
+        if ($value === null || $value === '') {
+            return '0.00';
+        }
+
+        $normalized = str_replace(',', '.', (string) $value);
+        if (!is_numeric($normalized)) {
+            return '0.00';
+        }
+
+        return sprintf('%.4F', (float) $normalized);
     }
 
     public function hookPaymentReturn($params)
