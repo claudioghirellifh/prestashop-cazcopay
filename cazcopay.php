@@ -80,7 +80,6 @@ class CazcoPay extends PaymentModule
 
         if ($installed) {
             $this->ensureWebhookSecret();
-            $this->ensureFriendlyUrlForWebhook();
         }
 
         return $installed;
@@ -144,14 +143,11 @@ class CazcoPay extends PaymentModule
     protected function renderForm()
     {
         $defaultLang = (int) Configuration::get('PS_LANG_DEFAULT');
-        $webhookUrl = $this->getWebhookUrl();
-        $fallbackWebhookUrl = $this->getWebhookFallbackUrl();
+        $webhookUrl = $this->getWebhookFallbackUrl();
         $webhookInfoHtml = sprintf(
-            '<div class="alert alert-info"><p>%s</p><p><code>%s</code></p><p class="small text-muted">%s <code>%s</code></p></div>',
+            '<div class="alert alert-info"><p>%s</p><p><code>%s</code></p></div>',
             $this->l('Informe esta URL no painel da Cazco Pay para receber os postbacks:'),
-            Tools::safeOutput($webhookUrl),
-            $this->l('Endereço alternativo (sem Friendly URL):'),
-            Tools::safeOutput($fallbackWebhookUrl)
+            Tools::safeOutput($webhookUrl)
         );
 
         $fieldsForm = [
@@ -372,10 +368,6 @@ class CazcoPay extends PaymentModule
     {
         $secret = $this->ensureWebhookSecret();
 
-        if (!Configuration::get('PS_REWRITING_SETTINGS')) {
-            $this->ensureFriendlyUrlForWebhook();
-        }
-
         return [
             'module-cazcopay-webhook' => [
                 'controller' => 'webhook',
@@ -406,29 +398,7 @@ class CazcoPay extends PaymentModule
         return $secret;
     }
 
-    private function ensureFriendlyUrlForWebhook()
-    {
-        $this->ensureWebhookSecret();
-
-        $wasEnabled = (bool) Configuration::get('PS_REWRITING_SETTINGS');
-
-        if ($wasEnabled) {
-            return;
-        }
-
-        Configuration::updateValue('PS_REWRITING_SETTINGS', 1);
-
-        try {
-            if (method_exists('Tools', 'generateHtaccess')) {
-                Tools::generateHtaccess();
-            }
-
-            CazcoPayLogger::log('Friendly URLs habilitadas automaticamente para expor /cazcopay/webhook.', 1);
-        } catch (\Exception $e) {
-            Configuration::updateValue('PS_REWRITING_SETTINGS', (int) $wasEnabled);
-            CazcoPayLogger::log('Falha ao habilitar Friendly URLs automaticamente: ' . $e->getMessage(), 3);
-        }
-    }
+    // Friendly URL enabling removed to avoid altering global rewrite settings.
 
     private function getWebhookUrl()
     {
