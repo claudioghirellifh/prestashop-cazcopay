@@ -13,6 +13,9 @@ class CazcoPayConfig
     public const KEY_INSTALLMENTS_MAX = 'CAZCO_INSTALLMENTS_MAX';
     public const KEY_OS_PIX = 'CAZCO_OS_PIX';
     public const KEY_WEBHOOK_SECRET = 'CAZCO_WEBHOOK_SECRET';
+    public const KEY_DOCUMENT_SOURCE = 'CAZCO_DOCUMENT_SOURCE';
+    public const KEY_DOCUMENT_CUSTOMER_FIELD = 'CAZCO_DOCUMENT_CUSTOMER_FIELD';
+    public const KEY_DOCUMENT_ADDRESS_FIELD = 'CAZCO_DOCUMENT_ADDRESS_FIELD';
 
     public static function installDefaults()
     {
@@ -28,6 +31,9 @@ class CazcoPayConfig
         $ok = $ok && Configuration::updateValue(self::KEY_INSTALLMENTS_MAX, 12);
         $ok = $ok && Configuration::updateValue(self::KEY_OS_PIX, 0);
         $ok = $ok && Configuration::updateValue(self::KEY_WEBHOOK_SECRET, Tools::passwdGen(32));
+        $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_SOURCE, 'auto');
+        $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_CUSTOMER_FIELD, '');
+        $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_ADDRESS_FIELD, '');
 
         for ($i = 1; $i <= 12; $i++) {
             $ok = $ok && Configuration::updateValue(self::getInstallmentInterestKey($i), '0.00');
@@ -50,6 +56,9 @@ class CazcoPayConfig
             self::KEY_ENABLE_CARD,
             self::KEY_INSTALLMENTS_MAX,
             self::KEY_WEBHOOK_SECRET,
+            self::KEY_DOCUMENT_SOURCE,
+            self::KEY_DOCUMENT_CUSTOMER_FIELD,
+            self::KEY_DOCUMENT_ADDRESS_FIELD,
         ] as $key) {
             $ok = $ok && Configuration::deleteByName($key);
         }
@@ -131,6 +140,26 @@ class CazcoPayConfig
     public static function getWebhookSecret()
     {
         return (string) Configuration::get(self::KEY_WEBHOOK_SECRET);
+    }
+
+    public static function getDocumentSource()
+    {
+        $source = (string) Configuration::get(self::KEY_DOCUMENT_SOURCE);
+        if (strpos($source, 'cbcz_customer:') === 0 || strpos($source, 'cbcz_address:') === 0) {
+            return $source;
+        }
+        $allowed = ['auto', 'customer_dni', 'address_dni', 'address_vat', 'cbcz_customer', 'cbcz_address'];
+        return in_array($source, $allowed, true) ? $source : 'auto';
+    }
+
+    public static function getDocumentCustomerFieldKey()
+    {
+        return (string) Configuration::get(self::KEY_DOCUMENT_CUSTOMER_FIELD);
+    }
+
+    public static function getDocumentAddressFieldKey()
+    {
+        return (string) Configuration::get(self::KEY_DOCUMENT_ADDRESS_FIELD);
     }
 
     public static function refreshWebhookSecret()

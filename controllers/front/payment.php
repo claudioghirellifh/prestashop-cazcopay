@@ -155,9 +155,6 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
         $address = $addressId ? new Address($addressId) : null;
 
         $document = $this->buildDocument($customer, $address);
-        if (empty($document) && $address instanceof Address && !empty($address->vat_number)) {
-            $document = $this->buildDocumentFromVat($address->vat_number);
-        }
 
         $customerData = array_filter([
             'name' => trim($customer->firstname . ' ' . $customer->lastname),
@@ -212,13 +209,65 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
         return $digits ?: null;
     }
 
-    protected function buildDocument(Customer $customer, $address)
+    protected function buildDocument(Customer $customer, $address, $source = null)
     {
+        if (!$source) {
+            $source = CazcoPayConfig::getDocumentSource();
+        }
+
+        if (strpos($source, 'cbcz_customer:') === 0) {
+            $fieldKey = substr($source, strlen('cbcz_customer:'));
+            $value = $this->getCadastroBrasilCustomerFieldValue((int) $customer->id, $fieldKey);
+            $document = $this->buildDocumentFromCustomValue($value);
+            if ($document) {
+                return $document;
+            }
+            $source = 'auto';
+        } elseif (strpos($source, 'cbcz_address:') === 0) {
+            $fieldKey = substr($source, strlen('cbcz_address:'));
+            $addressId = $address instanceof Address ? (int) $address->id : 0;
+            $value = $this->getCadastroBrasilAddressFieldValue($addressId, $fieldKey);
+            $document = $this->buildDocumentFromCustomValue($value);
+            if ($document) {
+                return $document;
+            }
+            $source = 'auto';
+        } elseif ($source === 'cbcz_customer') {
+            $fieldKey = CazcoPayConfig::getDocumentCustomerFieldKey();
+            $value = $this->getCadastroBrasilCustomerFieldValue((int) $customer->id, $fieldKey);
+            $document = $this->buildDocumentFromCustomValue($value);
+            if ($document) {
+                return $document;
+            }
+            $source = 'auto';
+        } elseif ($source === 'cbcz_address') {
+            $fieldKey = CazcoPayConfig::getDocumentAddressFieldKey();
+            $addressId = $address instanceof Address ? (int) $address->id : 0;
+            $value = $this->getCadastroBrasilAddressFieldValue($addressId, $fieldKey);
+            $document = $this->buildDocumentFromCustomValue($value);
+            if ($document) {
+                return $document;
+            }
+            $source = 'auto';
+        }
+
         $dni = '';
-        if (!empty($customer->dni)) {
+        if ($source === 'customer_dni') {
             $dni = $customer->dni;
-        } elseif ($address instanceof Address && !empty($address->dni)) {
-            $dni = $address->dni;
+        } elseif ($source === 'address_dni') {
+            $dni = $address instanceof Address ? $address->dni : '';
+        } elseif ($source === 'address_vat') {
+            return $this->buildDocumentFromVat(
+                $address instanceof Address ? $address->vat_number : ''
+            );
+        } else {
+            if (!empty($customer->dni)) {
+                $dni = $customer->dni;
+            } elseif ($address instanceof Address && !empty($address->dni)) {
+                $dni = $address->dni;
+            } elseif ($address instanceof Address && !empty($address->vat_number)) {
+                return $this->buildDocumentFromVat($address->vat_number);
+            }
         }
 
         $digits = preg_replace('/\D+/', '', (string) $dni);
@@ -255,5 +304,74 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
         }
 
         return null;
+    }
+
+    protected function buildDocumentFromCustomValue($value)
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        $digits = preg_replace('/\D+/', '', (string) $value);
+        if (strlen($digits) === 11) {
+            return [
+                'number' => $digits,
+                'type' => 'cpf',
+            ];
+        }
+        if (strlen($digits) === 14) {
+            return [
+                'number' => $digits,
+                'type' => 'cnpj',
+            ];
+        }
+
+        return null;
+    }
+
+    protected function getCadastroBrasilCustomerFieldValue($idCustomer, $fieldKey)
+    {
+        if ($idCustomer <= 0 || $fieldKey === '') {
+            return null;
+        }
+        if (!$this->hasCadastroBrasilFieldTable()) {
+            return null;
+        }
+        $sql = new DbQuery();
+        $sql->select('v.value');
+        $sql->from('cadastrobrasilcazco_customer_value', 'v');
+        $sql->leftJoin('cadastrobrasilcazco_field', 'f', 'v.id_cadastrobrasilcazco_field = f.id_cadastrobrasilcazco_field');
+        $sql->where('v.id_customer=' . (int) $idCustomer);
+        $sql->where('v.id_shop=' . (int) $this->context->shop->id);
+        $sql->where('f.field_key="' . pSQL($fieldKey) . '"');
+
+        return Db::getInstance()->getValue($sql);
+    }
+
+    protected function getCadastroBrasilAddressFieldValue($idAddress, $fieldKey)
+    {
+        if ($idAddress <= 0 || $fieldKey === '') {
+            return null;
+        }
+        if (!$this->hasCadastroBrasilFieldTable()) {
+            return null;
+        }
+        $sql = new DbQuery();
+        $sql->select('v.value');
+        $sql->from('cadastrobrasilcazco_address_value', 'v');
+        $sql->leftJoin('cadastrobrasilcazco_field', 'f', 'v.id_cadastrobrasilcazco_field = f.id_cadastrobrasilcazco_field');
+        $sql->where('v.id_address=' . (int) $idAddress);
+        $sql->where('v.id_shop=' . (int) $this->context->shop->id);
+        $sql->where('f.field_key="' . pSQL($fieldKey) . '"');
+
+        return Db::getInstance()->getValue($sql);
+    }
+
+    protected function hasCadastroBrasilFieldTable()
+    {
+        $table = _DB_PREFIX_ . 'cadastrobrasilcazco_field';
+        $exists = Db::getInstance()->getValue(
+            'SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = "' . pSQL($table) . '"'
+        );
+        return (bool) $exists;
     }
 }

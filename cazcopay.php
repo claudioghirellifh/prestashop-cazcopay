@@ -107,6 +107,17 @@ class CazcoPay extends PaymentModule
             $enablePix = (int) Tools::getValue(CazcoPayConfig::KEY_ENABLE_PIX);
             $enableBoleto = (int) Tools::getValue(CazcoPayConfig::KEY_ENABLE_BOLETO);
             $enableCard = (int) Tools::getValue(CazcoPayConfig::KEY_ENABLE_CARD);
+            $documentSource = Tools::getValue(
+                CazcoPayConfig::KEY_DOCUMENT_SOURCE,
+                CazcoPayConfig::getDocumentSource()
+            );
+            if (
+                !in_array($documentSource, ['auto', 'customer_dni', 'address_dni', 'address_vat', 'cbcz_customer', 'cbcz_address'], true)
+                && strpos($documentSource, 'cbcz_customer:') !== 0
+                && strpos($documentSource, 'cbcz_address:') !== 0
+            ) {
+                $documentSource = 'auto';
+            }
             $installmentsMax = (int) Tools::getValue(CazcoPayConfig::KEY_INSTALLMENTS_MAX, CazcoPayConfig::getInstallmentsMax());
             $installmentsMax = max(1, min(12, $installmentsMax));
 
@@ -118,6 +129,7 @@ class CazcoPay extends PaymentModule
             Configuration::updateValue(CazcoPayConfig::KEY_ENABLE_PIX, $enablePix);
             Configuration::updateValue(CazcoPayConfig::KEY_ENABLE_BOLETO, $enableBoleto);
             Configuration::updateValue(CazcoPayConfig::KEY_ENABLE_CARD, $enableCard);
+            Configuration::updateValue(CazcoPayConfig::KEY_DOCUMENT_SOURCE, $documentSource);
             Configuration::updateValue(CazcoPayConfig::KEY_INSTALLMENTS_MAX, $installmentsMax);
 
             for ($i = 1; $i <= 12; $i++) {
@@ -199,6 +211,17 @@ class CazcoPay extends PaymentModule
                         'label' => $this->l('Produção Public Key (PK)'),
                         'name' => CazcoPayConfig::KEY_PD_PK,
                         'required' => false,
+                    ],
+                    [
+                        'type' => 'select',
+                        'label' => $this->l('Mapeamento do documento do cliente'),
+                        'name' => CazcoPayConfig::KEY_DOCUMENT_SOURCE,
+                        'options' => [
+                            'query' => $this->buildDocumentSourceOptions($defaultLang),
+                            'id' => 'id',
+                            'name' => 'name',
+                        ],
+                        'desc' => $this->l('Selecione de qual campo o documento será lido para enviar à Cazco Pay.'),
                     ],
                     [
                         'type' => 'switch',
@@ -292,6 +315,7 @@ class CazcoPay extends PaymentModule
             CazcoPayConfig::KEY_SB_PK => Configuration::get(CazcoPayConfig::KEY_SB_PK),
             CazcoPayConfig::KEY_PD_SK => Configuration::get(CazcoPayConfig::KEY_PD_SK),
             CazcoPayConfig::KEY_PD_PK => Configuration::get(CazcoPayConfig::KEY_PD_PK),
+            CazcoPayConfig::KEY_DOCUMENT_SOURCE => CazcoPayConfig::getDocumentSource(),
             CazcoPayConfig::KEY_ENABLE_PIX => (int) Configuration::get(CazcoPayConfig::KEY_ENABLE_PIX),
             CazcoPayConfig::KEY_ENABLE_BOLETO => (int) Configuration::get(CazcoPayConfig::KEY_ENABLE_BOLETO),
             CazcoPayConfig::KEY_ENABLE_CARD => (int) Configuration::get(CazcoPayConfig::KEY_ENABLE_CARD),
@@ -457,6 +481,74 @@ class CazcoPay extends PaymentModule
         }
 
         return $list;
+    }
+
+    private function buildDocumentSourceOptions($idLang)
+    {
+        $options = [
+            ['id' => 'auto', 'name' => $this->l('Automático (DNI, depois VAT)')],
+            ['id' => 'customer_dni', 'name' => $this->l('Cliente: DNI')],
+            ['id' => 'address_dni', 'name' => $this->l('Endereço: DNI')],
+            ['id' => 'address_vat', 'name' => $this->l('Endereço: VAT/CPF/CNPJ')],
+        ];
+
+        $customerFields = $this->fetchCadastroBrasilFields('customer', $idLang);
+        foreach ($customerFields as $field) {
+            $label = $field['label'] ?: $field['field_key'];
+            $validation = $field['validation_type'] ? strtoupper($field['validation_type']) : '';
+            $name = $validation ? sprintf('Cliente: %s (%s)', $label, $validation) : sprintf('Cliente: %s', $label);
+            $options[] = [
+                'id' => 'cbcz_customer:' . $field['field_key'],
+                'name' => $name,
+            ];
+        }
+
+        $addressFields = $this->fetchCadastroBrasilFields('address', $idLang);
+        foreach ($addressFields as $field) {
+            $label = $field['label'] ?: $field['field_key'];
+            $validation = $field['validation_type'] ? strtoupper($field['validation_type']) : '';
+            $name = $validation ? sprintf('Endereço: %s (%s)', $label, $validation) : sprintf('Endereço: %s', $label);
+            $options[] = [
+                'id' => 'cbcz_address:' . $field['field_key'],
+                'name' => $name,
+            ];
+        }
+
+        return $options;
+    }
+
+    private function fetchCadastroBrasilFields($location, $idLang)
+    {
+        if (!in_array($location, ['customer', 'address'], true)) {
+            return [];
+        }
+        $hasTable = $this->hasCadastroBrasilFieldTable();
+        if (!$hasTable) {
+            return [];
+        }
+
+        $sql = new DbQuery();
+        $sql->select('f.field_key, f.validation_type, fl.label');
+        $sql->from('cadastrobrasilcazco_field', 'f');
+        $sql->leftJoin(
+            'cadastrobrasilcazco_field_lang',
+            'fl',
+            'f.id_cadastrobrasilcazco_field = fl.id_cadastrobrasilcazco_field AND fl.id_lang=' . (int) $idLang
+        );
+        $sql->where('f.location="' . pSQL($location) . '"');
+        $sql->orderBy('f.position ASC, f.id_cadastrobrasilcazco_field ASC');
+
+        $rows = Db::getInstance()->executeS($sql);
+        return is_array($rows) ? $rows : [];
+    }
+
+    private function hasCadastroBrasilFieldTable()
+    {
+        $table = _DB_PREFIX_ . 'cadastrobrasilcazco_field';
+        $exists = Db::getInstance()->getValue(
+            'SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = "' . pSQL($table) . '"'
+        );
+        return (bool) $exists;
     }
 
     private function renderInstallmentsTable()

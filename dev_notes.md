@@ -22,6 +22,7 @@
 - ✅ Checkout recalcula o valor total/parcela, exibe detalhes conforme seleção e respeita os limites mínimos configurados.
 - ✅ Fluxo PIX integrado à API `/transactions`: gera PIX, mostra “copia e cola”, link, expiração e registra logs detalhados.
 - ✅ PIX, Boleto e Cartão aparecem no checkout sem erro 500.
+- ✅ Mapeamento de documento no BO inclui campos personalizados do módulo de cadastro brasileiro (com fallback seguro).
 - ✅ Logs do Nginx estão habilitados (`nginx/logs/sites/presta`).
 
 ## Próximos Passos Sugeridos
