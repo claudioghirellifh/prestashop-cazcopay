@@ -16,6 +16,8 @@ class CazcoPayConfig
     public const KEY_DOCUMENT_SOURCE = 'CAZCO_DOCUMENT_SOURCE';
     public const KEY_DOCUMENT_CUSTOMER_FIELD = 'CAZCO_DOCUMENT_CUSTOMER_FIELD';
     public const KEY_DOCUMENT_ADDRESS_FIELD = 'CAZCO_DOCUMENT_ADDRESS_FIELD';
+    public const KEY_DOCUMENT_CPF_FIELD = 'CAZCO_DOCUMENT_CPF_FIELD';
+    public const KEY_DOCUMENT_CNPJ_FIELD = 'CAZCO_DOCUMENT_CNPJ_FIELD';
 
     public static function installDefaults()
     {
@@ -34,6 +36,8 @@ class CazcoPayConfig
         $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_SOURCE, 'auto');
         $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_CUSTOMER_FIELD, '');
         $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_ADDRESS_FIELD, '');
+        $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_CPF_FIELD, '');
+        $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_CNPJ_FIELD, '');
 
         for ($i = 1; $i <= 12; $i++) {
             $ok = $ok && Configuration::updateValue(self::getInstallmentInterestKey($i), '0.00');
@@ -59,6 +63,8 @@ class CazcoPayConfig
             self::KEY_DOCUMENT_SOURCE,
             self::KEY_DOCUMENT_CUSTOMER_FIELD,
             self::KEY_DOCUMENT_ADDRESS_FIELD,
+            self::KEY_DOCUMENT_CPF_FIELD,
+            self::KEY_DOCUMENT_CNPJ_FIELD,
         ] as $key) {
             $ok = $ok && Configuration::deleteByName($key);
         }
@@ -160,6 +166,16 @@ class CazcoPayConfig
     public static function getDocumentAddressFieldKey()
     {
         return (string) Configuration::get(self::KEY_DOCUMENT_ADDRESS_FIELD);
+    }
+
+    public static function getDocumentCpfFieldKey()
+    {
+        return (string) Configuration::get(self::KEY_DOCUMENT_CPF_FIELD);
+    }
+
+    public static function getDocumentCnpjFieldKey()
+    {
+        return (string) Configuration::get(self::KEY_DOCUMENT_CNPJ_FIELD);
     }
 
     public static function refreshWebhookSecret()

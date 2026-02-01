@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<module>
+    <name>cazcopay</name>
+    <displayName><![CDATA[Cazco Pay]]></displayName>
+    <version><![CDATA[0.1.0]]></version>
+    <description><![CDATA[Aceite pagamentos com Cazco Pay (PIX, Boleto e Cart&atilde;o).]]></description>
+    <author><![CDATA[Cazco Pay]]></author>
+    <tab><![CDATA[payments_gateways]]></tab>
+    <is_configurable>1</is_configurable>
+    <need_instance>0</need_instance>
+</module>

@@ -107,17 +107,6 @@ class CazcoPay extends PaymentModule
             $enablePix = (int) Tools::getValue(CazcoPayConfig::KEY_ENABLE_PIX);
             $enableBoleto = (int) Tools::getValue(CazcoPayConfig::KEY_ENABLE_BOLETO);
             $enableCard = (int) Tools::getValue(CazcoPayConfig::KEY_ENABLE_CARD);
-            $documentSource = Tools::getValue(
-                CazcoPayConfig::KEY_DOCUMENT_SOURCE,
-                CazcoPayConfig::getDocumentSource()
-            );
-            if (
-                !in_array($documentSource, ['auto', 'customer_dni', 'address_dni', 'address_vat', 'cbcz_customer', 'cbcz_address'], true)
-                && strpos($documentSource, 'cbcz_customer:') !== 0
-                && strpos($documentSource, 'cbcz_address:') !== 0
-            ) {
-                $documentSource = 'auto';
-            }
             $installmentsMax = (int) Tools::getValue(CazcoPayConfig::KEY_INSTALLMENTS_MAX, CazcoPayConfig::getInstallmentsMax());
             $installmentsMax = max(1, min(12, $installmentsMax));
 
@@ -129,8 +118,15 @@ class CazcoPay extends PaymentModule
             Configuration::updateValue(CazcoPayConfig::KEY_ENABLE_PIX, $enablePix);
             Configuration::updateValue(CazcoPayConfig::KEY_ENABLE_BOLETO, $enableBoleto);
             Configuration::updateValue(CazcoPayConfig::KEY_ENABLE_CARD, $enableCard);
-            Configuration::updateValue(CazcoPayConfig::KEY_DOCUMENT_SOURCE, $documentSource);
             Configuration::updateValue(CazcoPayConfig::KEY_INSTALLMENTS_MAX, $installmentsMax);
+            Configuration::updateValue(
+                CazcoPayConfig::KEY_DOCUMENT_CPF_FIELD,
+                Tools::getValue(CazcoPayConfig::KEY_DOCUMENT_CPF_FIELD, CazcoPayConfig::getDocumentCpfFieldKey())
+            );
+            Configuration::updateValue(
+                CazcoPayConfig::KEY_DOCUMENT_CNPJ_FIELD,
+                Tools::getValue(CazcoPayConfig::KEY_DOCUMENT_CNPJ_FIELD, CazcoPayConfig::getDocumentCnpjFieldKey())
+            );
 
             for ($i = 1; $i <= 12; $i++) {
                 $interestKey = CazcoPayConfig::getInstallmentInterestKey($i);
@@ -214,14 +210,25 @@ class CazcoPay extends PaymentModule
                     ],
                     [
                         'type' => 'select',
-                        'label' => $this->l('Mapeamento do documento do cliente'),
-                        'name' => CazcoPayConfig::KEY_DOCUMENT_SOURCE,
+                        'label' => $this->l('Mapeamento de CPF do cliente'),
+                        'name' => CazcoPayConfig::KEY_DOCUMENT_CPF_FIELD,
                         'options' => [
-                            'query' => $this->buildDocumentSourceOptions($defaultLang),
+                            'query' => $this->buildAgCustomerFieldOptions($defaultLang),
                             'id' => 'id',
                             'name' => 'name',
                         ],
-                        'desc' => $this->l('Selecione de qual campo o documento será lido para enviar à Cazco Pay.'),
+                        'desc' => $this->l('Selecione o campo que contém o CPF para clientes PF.'),
+                    ],
+                    [
+                        'type' => 'select',
+                        'label' => $this->l('Mapeamento de CNPJ do cliente'),
+                        'name' => CazcoPayConfig::KEY_DOCUMENT_CNPJ_FIELD,
+                        'options' => [
+                            'query' => $this->buildAgCustomerFieldOptions($defaultLang),
+                            'id' => 'id',
+                            'name' => 'name',
+                        ],
+                        'desc' => $this->l('Selecione o campo que contém o CNPJ para clientes PJ.'),
                     ],
                     [
                         'type' => 'switch',
@@ -315,7 +322,8 @@ class CazcoPay extends PaymentModule
             CazcoPayConfig::KEY_SB_PK => Configuration::get(CazcoPayConfig::KEY_SB_PK),
             CazcoPayConfig::KEY_PD_SK => Configuration::get(CazcoPayConfig::KEY_PD_SK),
             CazcoPayConfig::KEY_PD_PK => Configuration::get(CazcoPayConfig::KEY_PD_PK),
-            CazcoPayConfig::KEY_DOCUMENT_SOURCE => CazcoPayConfig::getDocumentSource(),
+            CazcoPayConfig::KEY_DOCUMENT_CPF_FIELD => CazcoPayConfig::getDocumentCpfFieldKey(),
+            CazcoPayConfig::KEY_DOCUMENT_CNPJ_FIELD => CazcoPayConfig::getDocumentCnpjFieldKey(),
             CazcoPayConfig::KEY_ENABLE_PIX => (int) Configuration::get(CazcoPayConfig::KEY_ENABLE_PIX),
             CazcoPayConfig::KEY_ENABLE_BOLETO => (int) Configuration::get(CazcoPayConfig::KEY_ENABLE_BOLETO),
             CazcoPayConfig::KEY_ENABLE_CARD => (int) Configuration::get(CazcoPayConfig::KEY_ENABLE_CARD),
@@ -483,13 +491,17 @@ class CazcoPay extends PaymentModule
         return $list;
     }
 
-    private function buildDocumentSourceOptions($idLang)
+    private function buildAgCustomerFieldOptions($idLang)
     {
         $options = [
-            ['id' => 'auto', 'name' => $this->l('Automático (DNI, depois VAT)')],
-            ['id' => 'customer_dni', 'name' => $this->l('Cliente: DNI')],
-            ['id' => 'address_dni', 'name' => $this->l('Endereço: DNI')],
-            ['id' => 'address_vat', 'name' => $this->l('Endereço: VAT/CPF/CNPJ')],
+            ['id' => '', 'name' => $this->l('Não usar')],
+            ['id' => 'ps_customer:cpf', 'name' => $this->l('Cliente: CPF (agcustomers)')],
+            ['id' => 'ps_customer:cnpj', 'name' => $this->l('Cliente: CNPJ (agcustomers)')],
+            ['id' => 'ps_customer:document_number', 'name' => $this->l('Cliente: Documento (agcustomers)')],
+            ['id' => 'ps_customer:person_type', 'name' => $this->l('Cliente: Tipo de pessoa (agcustomers)')],
+            ['id' => 'ps_customer:dni', 'name' => $this->l('Cliente: DNI (nativo)')],
+            ['id' => 'ps_address:dni', 'name' => $this->l('Endereço: DNI (nativo)')],
+            ['id' => 'ps_address:vat_number', 'name' => $this->l('Endereço: VAT/CPF/CNPJ (nativo)')],
         ];
 
         $customerFields = $this->fetchCadastroBrasilFields('customer', $idLang);
@@ -499,17 +511,6 @@ class CazcoPay extends PaymentModule
             $name = $validation ? sprintf('Cliente: %s (%s)', $label, $validation) : sprintf('Cliente: %s', $label);
             $options[] = [
                 'id' => 'cbcz_customer:' . $field['field_key'],
-                'name' => $name,
-            ];
-        }
-
-        $addressFields = $this->fetchCadastroBrasilFields('address', $idLang);
-        foreach ($addressFields as $field) {
-            $label = $field['label'] ?: $field['field_key'];
-            $validation = $field['validation_type'] ? strtoupper($field['validation_type']) : '';
-            $name = $validation ? sprintf('Endereço: %s (%s)', $label, $validation) : sprintf('Endereço: %s', $label);
-            $options[] = [
-                'id' => 'cbcz_address:' . $field['field_key'],
                 'name' => $name,
             ];
         }

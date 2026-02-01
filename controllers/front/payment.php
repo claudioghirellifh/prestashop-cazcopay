@@ -211,6 +211,40 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
 
     protected function buildDocument(Customer $customer, $address, $source = null)
     {
+        $cpfKey = CazcoPayConfig::getDocumentCpfFieldKey();
+        $cnpjKey = CazcoPayConfig::getDocumentCnpjFieldKey();
+        if ($cpfKey !== '' || $cnpjKey !== '') {
+            $personType = $this->resolvePersonType($customer, $address);
+            if ($personType === 'pj') {
+                $doc = $this->buildDocumentFromCustomValue(
+                    $this->resolveMappedFieldValue($customer, $address, $cnpjKey)
+                );
+                if ($doc) {
+                    return $doc;
+                }
+            } elseif ($personType === 'pf') {
+                $doc = $this->buildDocumentFromCustomValue(
+                    $this->resolveMappedFieldValue($customer, $address, $cpfKey)
+                );
+                if ($doc) {
+                    return $doc;
+                }
+            } else {
+                $doc = $this->buildDocumentFromCustomValue(
+                    $this->resolveMappedFieldValue($customer, $address, $cpfKey)
+                );
+                if ($doc) {
+                    return $doc;
+                }
+                $doc = $this->buildDocumentFromCustomValue(
+                    $this->resolveMappedFieldValue($customer, $address, $cnpjKey)
+                );
+                if ($doc) {
+                    return $doc;
+                }
+            }
+        }
+
         if (!$source) {
             $source = CazcoPayConfig::getDocumentSource();
         }
@@ -282,6 +316,97 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
                 'number' => $digits,
                 'type' => 'cnpj',
             ];
+        }
+
+        return null;
+    }
+
+    protected function resolvePersonType(Customer $customer, $address)
+    {
+        $value = '';
+        if (isset($customer->person_type)) {
+            $value = (string) $customer->person_type;
+        }
+        $value = strtolower(trim($value));
+        if ($value === 'pj' || $value === 'j') {
+            return 'pj';
+        }
+        if ($value === 'pf' || $value === 'f') {
+            return 'pf';
+        }
+
+        return '';
+    }
+
+    protected function resolveMappedFieldValue(Customer $customer, $address, $mapping)
+    {
+        $mapping = (string) $mapping;
+        if ($mapping === '') {
+            return null;
+        }
+
+        if (strpos($mapping, 'ps_customer:') === 0) {
+            $key = substr($mapping, strlen('ps_customer:'));
+            return $this->resolveCustomerFieldValue($customer, $key);
+        }
+        if (strpos($mapping, 'ps_address:') === 0) {
+            $key = substr($mapping, strlen('ps_address:'));
+            return $this->resolveAddressFieldValue($address, $key);
+        }
+        if (strpos($mapping, 'cbcz_customer:') === 0) {
+            $key = substr($mapping, strlen('cbcz_customer:'));
+            return $this->getCadastroBrasilCustomerFieldValue((int) $customer->id, $key);
+        }
+        if (strpos($mapping, 'cbcz_address:') === 0) {
+            $key = substr($mapping, strlen('cbcz_address:'));
+            $addressId = $address instanceof Address ? (int) $address->id : 0;
+            return $this->getCadastroBrasilAddressFieldValue($addressId, $key);
+        }
+
+        return null;
+    }
+
+    protected function resolveCustomerFieldValue(Customer $customer, $key)
+    {
+        $key = (string) $key;
+        if ($key === '') {
+            return null;
+        }
+
+        switch ($key) {
+            case 'cpf':
+                return isset($customer->cpf) ? (string) $customer->cpf : null;
+            case 'cnpj':
+                return isset($customer->cnpj) ? (string) $customer->cnpj : null;
+            case 'document_number':
+                return isset($customer->document_number) ? (string) $customer->document_number : null;
+            case 'person_type':
+                return isset($customer->person_type) ? (string) $customer->person_type : null;
+            case 'dni':
+                return isset($customer->dni) ? (string) $customer->dni : null;
+        }
+
+        return null;
+    }
+
+    protected function resolveAddressFieldValue($address, $key)
+    {
+        if (!$address instanceof Address) {
+            return null;
+        }
+
+        $key = (string) $key;
+        if ($key === '') {
+            return null;
+        }
+
+        switch ($key) {
+            case 'number':
+                return isset($address->number) ? (string) $address->number : null;
+            case 'dni':
+                return isset($address->dni) ? (string) $address->dni : null;
+            case 'vat_number':
+                return isset($address->vat_number) ? (string) $address->vat_number : null;
         }
 
         return null;
