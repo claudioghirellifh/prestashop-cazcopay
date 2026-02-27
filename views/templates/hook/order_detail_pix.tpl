@@ -1,13 +1,29 @@
 {if isset($cazco_order)}
-<section class="cazcopay-order-pix card mt-3">
+{literal}
+<style>
+  .cazcopay-order-pix.cazcopay-pix-main {
+    max-width: 100%;
+    margin: 0;
+  }
+  .cazcopay-order-pix .cazcopay-pix-card-body {
+    padding: 1.25rem;
+  }
+  @media (max-width: 768px) {
+    .cazcopay-order-pix .cazcopay-pix-card-body {
+      padding: 1rem;
+    }
+  }
+</style>
+{/literal}
+<section class="cazcopay-order-pix cazcopay-pix-main card mt-3">
   <div class="card-header">
     <h3>{l s='Pagamento via PIX' mod='cazcopay'}</h3>
   </div>
-  <div class="card-body">
+  <div class="card-body cazcopay-pix-card-body">
     {if isset($cazco_order.amount)}
       <p>
         <strong>{l s='Valor total:' mod='cazcopay'}</strong>
-        {$currency_sign|escape:'htmlall'} {$cazco_order.amount/100|number_format:2:',':'.'}
+        {$currency_sign|escape:'htmlall'} {(($cazco_order.amount|default:0)/100)|number_format:2:',':'.'}
       </p>
     {/if}
     {if $cazco_order.pix_expiration_formatted}

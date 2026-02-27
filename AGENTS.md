@@ -57,6 +57,13 @@
 ## Atualizacoes recentes
 - Mapeamento de documento no BO lista campos personalizados (cliente/endereco) no select principal.
 - Quando o modulo `cadastrobrasilcazco` nao existe, nao lista opcoes extras.
+- Removido mapeamento de campos do `agcustomers`; o modulo agora usa apenas campos nativos e `cadastrobrasilcazco`.
+- URL de postback agora suporta formato amigavel (`/cazcopay/webhook/{token}`) e formato sem amigavel (`index.php?...&controller=webhook&token=...`).
+- BO separado em abas `Configurações` e `Logs postback`, com listagem paginada e limpeza dos logs de webhook.
+- Novo log persistente de postback na tabela `ps_cazcopay_webhook_log` com status HTTP, token válido, transação, pedido, erro e payload.
+- Corrigido warning no FO de valor PIX (`Non-numeric value encountered`) ajustando precedencia no Smarty com parenteses no calculo `amount/100`.
+- Expiração PIX no FO padronizada para BR (`dd/mm/aaaa` ou `dd/mm/aaaa HH:mm`) via formatação no backend (`getPixData`).
+- FO PIX recebeu mais respiro lateral (padding interno) nos templates de retorno, detalhe do pedido e tela PIX, mantendo largura alinhada ao restante da página (sem `max-width` centralizado).
 
 ## Regras de atualizacao
 - A cada feature commitada, atualizar este `AGENTS.md`.

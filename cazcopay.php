@@ -98,6 +98,14 @@ class CazcoPay extends PaymentModule
     public function getContent()
     {
         $output = '';
+        $activeTab = (string) Tools::getValue('cazco_tab', 'settings');
+        if (!in_array($activeTab, ['settings', 'logs'], true)) {
+            $activeTab = 'settings';
+        }
+
+        $this->ensureWebhookSecret();
+        $this->ensureWebhookLogTable();
+
         if (Tools::isSubmit('submitCazcoPayConfig')) {
             $env = Tools::getValue(CazcoPayConfig::KEY_ENV);
             $sbSk = Tools::getValue(CazcoPayConfig::KEY_SB_SK);
@@ -143,19 +151,180 @@ class CazcoPay extends PaymentModule
 
             CazcoPayLogger::log('Configurações salvas', 1);
             $output .= $this->displayConfirmation($this->l('Configurações atualizadas com sucesso.'));
+            $activeTab = 'settings';
+        }
+
+        if (Tools::isSubmit('submitCazcoPayClearPostbackLogs')) {
+            $deletedCount = $this->clearWebhookLogs();
+            $output .= $this->displayConfirmation(sprintf(
+                $this->l('%d log(s) de postback removido(s) com sucesso.'),
+                (int) $deletedCount
+            ));
+            $activeTab = 'logs';
+        }
+
+        $output .= $this->renderAdminTabs($activeTab);
+
+        if ($activeTab === 'logs') {
+            return $output . $this->renderPostbackLogsTab();
         }
 
         return $output . $this->renderForm();
     }
 
+    private function renderAdminTabs($activeTab)
+    {
+        $settingsUrl = $this->getAdminModuleUrl(['cazco_tab' => 'settings']);
+        $logsUrl = $this->getAdminModuleUrl(['cazco_tab' => 'logs']);
+
+        return sprintf(
+            '<ul class="nav nav-tabs"><li class="%s"><a href="%s">%s</a></li><li class="%s"><a href="%s">%s</a></li></ul><div style="height:15px"></div>',
+            $activeTab === 'settings' ? 'active' : '',
+            Tools::safeOutput($settingsUrl),
+            $this->l('Configurações'),
+            $activeTab === 'logs' ? 'active' : '',
+            Tools::safeOutput($logsUrl),
+            $this->l('Logs postback')
+        );
+    }
+
+    private function getAdminModuleUrl(array $params = [])
+    {
+        $url = AdminController::$currentIndex
+            . '&configure=' . $this->name
+            . '&token=' . Tools::getAdminTokenLite('AdminModules');
+
+        if (!empty($params)) {
+            $url .= '&' . http_build_query($params);
+        }
+
+        return $url;
+    }
+
+    private function renderPostbackLogsTab()
+    {
+        $this->ensureWebhookLogTable();
+
+        $page = max(1, (int) Tools::getValue('cazco_log_page', 1));
+        $perPage = 30;
+        $total = $this->countWebhookLogs();
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+
+        $logs = $this->getWebhookLogs($page, $perPage);
+        $clearAction = $this->getAdminModuleUrl(['cazco_tab' => 'logs']);
+
+        $rowsHtml = '';
+        foreach ($logs as $row) {
+            $date = !empty($row['date_add']) ? Tools::displayDate($row['date_add'], null, true) : '-';
+            $tokenValid = !empty($row['token_valid']) ? $this->l('Sim') : $this->l('Não');
+            $httpCode = !empty($row['http_code']) ? (int) $row['http_code'] : '-';
+            $result = !empty($row['result']) ? Tools::safeOutput($row['result']) : '-';
+            $status = !empty($row['payment_status']) ? Tools::safeOutput($row['payment_status']) : '-';
+            $transactionId = !empty($row['transaction_id']) ? Tools::safeOutput($row['transaction_id']) : '-';
+            $orderId = !empty($row['id_order']) ? (int) $row['id_order'] : '-';
+            $error = !empty($row['error_message']) ? Tools::safeOutput($row['error_message']) : '-';
+            $method = !empty($row['request_method']) ? Tools::safeOutput($row['request_method']) : '-';
+            $ip = !empty($row['ip_address']) ? Tools::safeOutput($row['ip_address']) : '-';
+
+            $payload = (string) ($row['payload'] ?? '');
+            $payload = trim($payload);
+            if (strlen($payload) > 12000) {
+                $payload = substr($payload, 0, 12000) . "\n...[truncado]";
+            }
+
+            $payloadHtml = '-';
+            if ($payload !== '') {
+                $payloadHtml = '<details><summary>' . $this->l('Ver payload') . '</summary><pre style="max-height:240px;overflow:auto;">'
+                    . Tools::safeOutput($payload)
+                    . '</pre></details>';
+            }
+
+            $rowsHtml .= sprintf(
+                '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+                Tools::safeOutput($date),
+                Tools::safeOutput($method),
+                Tools::safeOutput($ip),
+                Tools::safeOutput($tokenValid),
+                Tools::safeOutput((string) $httpCode),
+                $result,
+                $status,
+                $transactionId,
+                Tools::safeOutput((string) $orderId),
+                $error,
+                $payloadHtml
+            );
+        }
+
+        if ($rowsHtml === '') {
+            $rowsHtml = '<tr><td colspan="11" class="text-center">' . $this->l('Nenhum log de postback encontrado.') . '</td></tr>';
+        }
+
+        $pagination = $this->renderPostbackPagination($page, $totalPages);
+
+        return '<div class="panel">'
+            . '<h3><i class="icon-list-ul"></i> ' . $this->l('Logs de postback') . '</h3>'
+            . '<p>' . sprintf($this->l('Total de registros: %d'), (int) $total) . '</p>'
+            . '<form method="post" action="' . Tools::safeOutput($clearAction) . '" style="margin-bottom:15px;" onsubmit="return confirm(\''
+                . Tools::safeOutput($this->l('Deseja realmente limpar todos os logs de postback?'))
+                . '\');">'
+            . '<button type="submit" class="btn btn-danger" name="submitCazcoPayClearPostbackLogs" value="1">'
+            . $this->l('Limpar logs')
+            . '</button>'
+            . '</form>'
+            . '<div class="table-responsive"><table class="table table-striped table-bordered">'
+            . '<thead><tr><th>' . $this->l('Data') . '</th><th>' . $this->l('Método') . '</th><th>IP</th><th>' . $this->l('Token válido') . '</th><th>HTTP</th><th>' . $this->l('Resultado') . '</th><th>' . $this->l('Status') . '</th><th>' . $this->l('Transação') . '</th><th>' . $this->l('Pedido') . '</th><th>' . $this->l('Erro') . '</th><th>Payload</th></tr></thead>'
+            . '<tbody>' . $rowsHtml . '</tbody></table></div>'
+            . $pagination
+            . '</div>';
+    }
+
+    private function renderPostbackPagination($page, $totalPages)
+    {
+        if ($totalPages <= 1) {
+            return '';
+        }
+
+        $parts = ['<div class="clearfix">'];
+        if ($page > 1) {
+            $prevUrl = $this->getAdminModuleUrl([
+                'cazco_tab' => 'logs',
+                'cazco_log_page' => $page - 1,
+            ]);
+            $parts[] = '<a class="btn btn-default" href="' . Tools::safeOutput($prevUrl) . '">' . $this->l('Anterior') . '</a>';
+        }
+
+        $parts[] = '<span style="display:inline-block;margin:0 10px;line-height:32px;">'
+            . sprintf($this->l('Página %d de %d'), (int) $page, (int) $totalPages)
+            . '</span>';
+
+        if ($page < $totalPages) {
+            $nextUrl = $this->getAdminModuleUrl([
+                'cazco_tab' => 'logs',
+                'cazco_log_page' => $page + 1,
+            ]);
+            $parts[] = '<a class="btn btn-default" href="' . Tools::safeOutput($nextUrl) . '">' . $this->l('Próxima') . '</a>';
+        }
+
+        $parts[] = '</div>';
+
+        return implode('', $parts);
+    }
+
     protected function renderForm()
     {
         $defaultLang = (int) Configuration::get('PS_LANG_DEFAULT');
-        $webhookUrl = $this->getWebhookFallbackUrl();
+        $friendlyWebhookUrl = $this->getWebhookUrl();
+        $fallbackWebhookUrl = $this->getWebhookFallbackUrl();
         $webhookInfoHtml = sprintf(
-            '<div class="alert alert-info"><p>%s</p><p><code>%s</code></p></div>',
+            '<div class="alert alert-info"><p>%s</p><p><strong>%s</strong><br><code>%s</code></p><p><strong>%s</strong><br><code>%s</code></p></div>',
             $this->l('Informe esta URL no painel da Cazco Pay para receber os postbacks:'),
-            Tools::safeOutput($webhookUrl)
+            $this->l('URL amigável'),
+            Tools::safeOutput($friendlyWebhookUrl),
+            $this->l('URL sem amigável (fallback)'),
+            Tools::safeOutput($fallbackWebhookUrl)
         );
 
         $fieldsForm = [
@@ -213,7 +382,7 @@ class CazcoPay extends PaymentModule
                         'label' => $this->l('Mapeamento de CPF do cliente'),
                         'name' => CazcoPayConfig::KEY_DOCUMENT_CPF_FIELD,
                         'options' => [
-                            'query' => $this->buildAgCustomerFieldOptions($defaultLang),
+                            'query' => $this->buildDocumentFieldOptions($defaultLang),
                             'id' => 'id',
                             'name' => 'name',
                         ],
@@ -224,7 +393,7 @@ class CazcoPay extends PaymentModule
                         'label' => $this->l('Mapeamento de CNPJ do cliente'),
                         'name' => CazcoPayConfig::KEY_DOCUMENT_CNPJ_FIELD,
                         'options' => [
-                            'query' => $this->buildAgCustomerFieldOptions($defaultLang),
+                            'query' => $this->buildDocumentFieldOptions($defaultLang),
                             'id' => 'id',
                             'name' => 'name',
                         ],
@@ -312,7 +481,7 @@ class CazcoPay extends PaymentModule
         $helper->module = $this;
         $helper->name_controller = $this->name;
         $helper->token = Tools::getAdminTokenLite('AdminModules');
-        $helper->currentIndex = AdminController::$currentIndex . '&configure=' . $this->name;
+        $helper->currentIndex = AdminController::$currentIndex . '&configure=' . $this->name . '&cazco_tab=settings';
         $helper->default_form_language = $defaultLang;
         $helper->show_toolbar = false;
         $helper->submit_action = 'submitCazcoPayConfig';
@@ -398,21 +567,19 @@ class CazcoPay extends PaymentModule
 
     public function hookModuleRoutes($params)
     {
-        $secret = $this->ensureWebhookSecret();
-
         return [
             'module-cazcopay-webhook' => [
                 'controller' => 'webhook',
-                'rule' => 'cazcopay/webhook/' . $secret,
+                'rule' => 'cazcopay/webhook/{token}',
                 'keywords' => [
                     'token' => [
                         'regexp' => '[_A-Za-z0-9-]{8,}',
+                        'param' => 'token',
                     ],
                 ],
                 'params' => [
                     'fc' => 'module',
                     'module' => $this->name,
-                    'token' => $secret,
                 ],
             ],
         ];
@@ -430,26 +597,16 @@ class CazcoPay extends PaymentModule
         return $secret;
     }
 
-    // Friendly URL enabling removed to avoid altering global rewrite settings.
-
     private function getWebhookUrl()
     {
         $secret = $this->ensureWebhookSecret();
-        $url = $this->context->link->getModuleLink(
-            $this->name,
-            'webhook',
-            ['token' => $secret],
-            true
+        $baseUrl = rtrim($this->context->shop->getBaseURL(true), '/');
+
+        return sprintf(
+            '%s/cazcopay/webhook/%s',
+            $baseUrl,
+            $secret
         );
-
-        if (Configuration::get('PS_REWRITING_SETTINGS')) {
-            $queryPos = strpos($url, '?');
-            if (false !== $queryPos) {
-                $url = substr($url, 0, $queryPos);
-            }
-        }
-
-        return $url;
     }
 
     private function getWebhookFallbackUrl()
@@ -491,14 +648,10 @@ class CazcoPay extends PaymentModule
         return $list;
     }
 
-    private function buildAgCustomerFieldOptions($idLang)
+    private function buildDocumentFieldOptions($idLang)
     {
         $options = [
             ['id' => '', 'name' => $this->l('Não usar')],
-            ['id' => 'ps_customer:cpf', 'name' => $this->l('Cliente: CPF (agcustomers)')],
-            ['id' => 'ps_customer:cnpj', 'name' => $this->l('Cliente: CNPJ (agcustomers)')],
-            ['id' => 'ps_customer:document_number', 'name' => $this->l('Cliente: Documento (agcustomers)')],
-            ['id' => 'ps_customer:person_type', 'name' => $this->l('Cliente: Tipo de pessoa (agcustomers)')],
             ['id' => 'ps_customer:dni', 'name' => $this->l('Cliente: DNI (nativo)')],
             ['id' => 'ps_address:dni', 'name' => $this->l('Endereço: DNI (nativo)')],
             ['id' => 'ps_address:vat_number', 'name' => $this->l('Endereço: VAT/CPF/CNPJ (nativo)')],
@@ -730,7 +883,18 @@ class CazcoPay extends PaymentModule
 
     protected function installTables()
     {
-        $sql = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'cazcopay_order` (
+        return Db::getInstance()->execute($this->getCazcoPayOrderTableSql())
+            && $this->ensureWebhookLogTable();
+    }
+
+    private function ensureWebhookLogTable()
+    {
+        return Db::getInstance()->execute($this->getCazcoPayWebhookLogTableSql());
+    }
+
+    private function getCazcoPayOrderTableSql()
+    {
+        return 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'cazcopay_order` (
             `id_cazcopay_order` INT UNSIGNED NOT NULL AUTO_INCREMENT,
             `id_order` INT UNSIGNED NOT NULL,
             `payment_method` VARCHAR(32) NOT NULL,
@@ -744,13 +908,105 @@ class CazcoPay extends PaymentModule
             PRIMARY KEY (`id_cazcopay_order`),
             UNIQUE KEY `uniq_order` (`id_order`)
         ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4';
+    }
 
-        return Db::getInstance()->execute($sql);
+    private function getCazcoPayWebhookLogTableSql()
+    {
+        return 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'cazcopay_webhook_log` (
+            `id_cazcopay_webhook_log` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `request_method` VARCHAR(10) NOT NULL,
+            `request_uri` VARCHAR(255) DEFAULT NULL,
+            `ip_address` VARCHAR(45) DEFAULT NULL,
+            `token_valid` TINYINT(1) NOT NULL DEFAULT 0,
+            `http_code` SMALLINT UNSIGNED DEFAULT NULL,
+            `result` VARCHAR(64) DEFAULT NULL,
+            `payment_status` VARCHAR(64) DEFAULT NULL,
+            `transaction_id` VARCHAR(128) DEFAULT NULL,
+            `object_id` VARCHAR(128) DEFAULT NULL,
+            `id_order` INT UNSIGNED DEFAULT NULL,
+            `error_message` VARCHAR(255) DEFAULT NULL,
+            `payload` LONGTEXT DEFAULT NULL,
+            `date_add` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id_cazcopay_webhook_log`),
+            KEY `idx_cazcopay_webhook_log_date` (`date_add`),
+            KEY `idx_cazcopay_webhook_log_transaction` (`transaction_id`),
+            KEY `idx_cazcopay_webhook_log_order` (`id_order`)
+        ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4';
     }
 
     protected function uninstallTables()
     {
-        return Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'cazcopay_order`');
+        return Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'cazcopay_webhook_log`')
+            && Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'cazcopay_order`');
+    }
+
+    public function saveWebhookLog(array $data)
+    {
+        $this->ensureWebhookLogTable();
+
+        $payload = $data['payload'] ?? '';
+        if (is_array($payload) || is_object($payload)) {
+            $payload = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } elseif (!is_string($payload)) {
+            $payload = '';
+        }
+        if ($payload === false) {
+            $payload = '';
+        }
+        if (strlen($payload) > 65000) {
+            $payload = substr($payload, 0, 65000) . "\n...[truncado]";
+        }
+
+        $requestUri = isset($data['request_uri']) ? (string) $data['request_uri'] : '';
+        $requestUri = preg_replace('#(/cazcopay/webhook/)[_A-Za-z0-9-]{8,}#', '$1***', $requestUri);
+        $requestUri = preg_replace('#([?&]token=)[^&]+#', '$1***', $requestUri);
+
+        $row = [
+            'request_method' => pSQL(substr((string) ($data['request_method'] ?? ''), 0, 10)),
+            'request_uri' => pSQL(substr($requestUri, 0, 255), true),
+            'ip_address' => pSQL(substr((string) ($data['ip_address'] ?? ''), 0, 45)),
+            'token_valid' => !empty($data['token_valid']) ? 1 : 0,
+            'http_code' => isset($data['http_code']) ? (int) $data['http_code'] : 0,
+            'result' => pSQL(substr((string) ($data['result'] ?? ''), 0, 64), true),
+            'payment_status' => pSQL(substr((string) ($data['payment_status'] ?? ''), 0, 64), true),
+            'transaction_id' => pSQL(substr((string) ($data['transaction_id'] ?? ''), 0, 128), true),
+            'object_id' => pSQL(substr((string) ($data['object_id'] ?? ''), 0, 128), true),
+            'id_order' => isset($data['id_order']) ? (int) $data['id_order'] : 0,
+            'error_message' => pSQL(substr((string) ($data['error_message'] ?? ''), 0, 255), true),
+            'payload' => pSQL($payload, true),
+            'date_add' => date('Y-m-d H:i:s'),
+        ];
+
+        Db::getInstance()->insert('cazcopay_webhook_log', $row);
+    }
+
+    private function getWebhookLogs($page, $perPage)
+    {
+        $offset = max(0, ((int) $page - 1) * (int) $perPage);
+        $limit = max(1, (int) $perPage);
+
+        $sql = new DbQuery();
+        $sql->select('*');
+        $sql->from('cazcopay_webhook_log');
+        $sql->orderBy('id_cazcopay_webhook_log DESC');
+        $sql->limit($limit, $offset);
+
+        $rows = Db::getInstance()->executeS($sql);
+
+        return is_array($rows) ? $rows : [];
+    }
+
+    private function countWebhookLogs()
+    {
+        return (int) Db::getInstance()->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'cazcopay_webhook_log`');
+    }
+
+    private function clearWebhookLogs()
+    {
+        $total = $this->countWebhookLogs();
+        Db::getInstance()->execute('DELETE FROM `' . _DB_PREFIX_ . 'cazcopay_webhook_log`');
+
+        return $total;
     }
 
     public function savePixData($idOrder, array $data)
@@ -798,10 +1054,30 @@ class CazcoPay extends PaymentModule
         $row['payload'] = $row['payload'] ? json_decode($row['payload'], true) : null;
         $row['qrcode_image'] = $row['pix_qrcode'] ? $this->buildPixQrCodeUrl($row['pix_qrcode']) : null;
         $row['pix_expiration_formatted'] = $row['pix_expiration']
-            ? Tools::displayDate($row['pix_expiration'], null, true)
+            ? $this->formatPixExpirationForBr((string) $row['pix_expiration'])
             : null;
 
         return $row;
+    }
+
+    private function formatPixExpirationForBr($value)
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return null;
+        }
+
+        $timestamp = strtotime($value);
+        if ($timestamp === false) {
+            return $value;
+        }
+
+        // Se nao houver horario util, mostra apenas data no padrao BR.
+        if (date('H:i:s', $timestamp) === '00:00:00') {
+            return date('d/m/Y', $timestamp);
+        }
+
+        return date('d/m/Y H:i', $timestamp);
     }
 
     protected function buildPixQrCodeUrl($payload)

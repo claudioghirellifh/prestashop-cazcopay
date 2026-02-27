@@ -213,35 +213,21 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
     {
         $cpfKey = CazcoPayConfig::getDocumentCpfFieldKey();
         $cnpjKey = CazcoPayConfig::getDocumentCnpjFieldKey();
-        if ($cpfKey !== '' || $cnpjKey !== '') {
-            $personType = $this->resolvePersonType($customer, $address);
-            if ($personType === 'pj') {
-                $doc = $this->buildDocumentFromCustomValue(
-                    $this->resolveMappedFieldValue($customer, $address, $cnpjKey)
-                );
-                if ($doc) {
-                    return $doc;
-                }
-            } elseif ($personType === 'pf') {
-                $doc = $this->buildDocumentFromCustomValue(
-                    $this->resolveMappedFieldValue($customer, $address, $cpfKey)
-                );
-                if ($doc) {
-                    return $doc;
-                }
-            } else {
-                $doc = $this->buildDocumentFromCustomValue(
-                    $this->resolveMappedFieldValue($customer, $address, $cpfKey)
-                );
-                if ($doc) {
-                    return $doc;
-                }
-                $doc = $this->buildDocumentFromCustomValue(
-                    $this->resolveMappedFieldValue($customer, $address, $cnpjKey)
-                );
-                if ($doc) {
-                    return $doc;
-                }
+        if ($cpfKey !== '') {
+            $doc = $this->buildDocumentFromCustomValue(
+                $this->resolveMappedFieldValue($customer, $address, $cpfKey)
+            );
+            if ($doc) {
+                return $doc;
+            }
+        }
+
+        if ($cnpjKey !== '') {
+            $doc = $this->buildDocumentFromCustomValue(
+                $this->resolveMappedFieldValue($customer, $address, $cnpjKey)
+            );
+            if ($doc) {
+                return $doc;
             }
         }
 
@@ -321,23 +307,6 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
         return null;
     }
 
-    protected function resolvePersonType(Customer $customer, $address)
-    {
-        $value = '';
-        if (isset($customer->person_type)) {
-            $value = (string) $customer->person_type;
-        }
-        $value = strtolower(trim($value));
-        if ($value === 'pj' || $value === 'j') {
-            return 'pj';
-        }
-        if ($value === 'pf' || $value === 'f') {
-            return 'pf';
-        }
-
-        return '';
-    }
-
     protected function resolveMappedFieldValue(Customer $customer, $address, $mapping)
     {
         $mapping = (string) $mapping;
@@ -374,14 +343,6 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
         }
 
         switch ($key) {
-            case 'cpf':
-                return isset($customer->cpf) ? (string) $customer->cpf : null;
-            case 'cnpj':
-                return isset($customer->cnpj) ? (string) $customer->cnpj : null;
-            case 'document_number':
-                return isset($customer->document_number) ? (string) $customer->document_number : null;
-            case 'person_type':
-                return isset($customer->person_type) ? (string) $customer->person_type : null;
             case 'dni':
                 return isset($customer->dni) ? (string) $customer->dni : null;
         }

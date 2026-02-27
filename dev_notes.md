@@ -23,7 +23,14 @@
 - ✅ Fluxo PIX integrado à API `/transactions`: gera PIX, mostra “copia e cola”, link, expiração e registra logs detalhados.
 - ✅ PIX, Boleto e Cartão aparecem no checkout sem erro 500.
 - ✅ Mapeamento de documento no BO inclui campos personalizados do módulo de cadastro brasileiro (com fallback seguro).
+- ✅ Removido mapeamento de documento por campos do `agcustomers` (CPF/CNPJ/document_number/person_type).
+- ✅ URL de postback aceita formato amigável e não amigável, e o BO exibe as duas opções para configuração.
+- ✅ Configuração do módulo separada em abas (`Configurações` e `Logs postback`) para operação diária.
+- ✅ Webhook grava logs persistentes em tabela própria com paginação/limpeza no BO.
 - ✅ Logs do Nginx estão habilitados (`nginx/logs/sites/presta`).
+- ✅ Corrigido warning no FO do retorno PIX (`Non-numeric value encountered`) ao formatar valor, ajustando a expressão Smarty para aplicar `number_format` no resultado da divisão.
+- ✅ Campo "Expira em" no FO do PIX padronizado para formato BR (`dd/mm/aaaa` ou `dd/mm/aaaa HH:mm`) no backend.
+- ✅ Layout FO do PIX ajustado com mais respiro lateral (padding), preservando a largura alinhada ao grid da página para manter consistência visual com os blocos nativos.
 
 ## Próximos Passos Sugeridos
 1. **Integração real com a API da Cazco Pay**  
@@ -74,4 +81,4 @@
   docker compose exec ps_php rm -rf /var/www/presta/var/cache/*
   ```
 
-> Sempre que uma feature for concluída com sucesso, atualizar este arquivo imediatamente (seção “O que já deu certo” + eventuais próximos passos).*** End Patch
+> Sempre que uma feature for concluída com sucesso, atualizar este arquivo imediatamente (seção “O que já deu certo” + eventuais próximos passos).

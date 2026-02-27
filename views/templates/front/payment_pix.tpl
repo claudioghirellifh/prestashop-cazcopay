@@ -1,11 +1,27 @@
 {extends file='page.tpl'}
 
 {block name='page_content'}
-  <div class="card">
+  {literal}
+  <style>
+    .cazcopay-pix-page {
+      max-width: 100%;
+      margin: 0;
+    }
+    .cazcopay-pix-page .cazcopay-pix-card-body {
+      padding: 1.25rem;
+    }
+    @media (max-width: 768px) {
+      .cazcopay-pix-page .cazcopay-pix-card-body {
+        padding: 1rem;
+      }
+    }
+  </style>
+  {/literal}
+  <div class="card cazcopay-pix-page">
     <div class="card-header">
       <h3>Cazco Pay — PIX</h3>
     </div>
-    <div class="card-body">
+    <div class="card-body cazcopay-pix-card-body">
       {if isset($cazco_error)}
         <div class="alert alert-danger" role="alert">
           {$cazco_error|escape:'htmlall'}
@@ -16,7 +32,7 @@
       {elseif isset($cazco_pix)}
         <p>
           <strong>{l s='Valor total:' mod='cazcopay'}</strong>
-          {$currency_sign|escape:'htmlall'} {$cazco_pix.amount_cents/100|number_format:2:',':'.'}
+          {$currency_sign|escape:'htmlall'} {(($cazco_pix.amount_cents|default:0)/100)|number_format:2:',':'.'}
         </p>
         {if $cazco_pix.expiration}
           <p>

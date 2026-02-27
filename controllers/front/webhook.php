@@ -51,6 +51,11 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
      */
     private $rawPayload = '';
 
+    /**
+     * @var string
+     */
+    private $providedToken = '';
+
     public function __construct()
     {
         parent::__construct();
@@ -87,7 +92,12 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
         parent::init();
 
         $this->secret = CazcoPayConfig::getWebhookSecret();
+        $this->providedToken = $this->resolveProvidedToken();
         if (empty($this->secret)) {
+            $this->persistPostbackLog(500, 'webhook_not_configured', [
+                'token_valid' => 0,
+                'error_message' => 'Webhook secret ausente.',
+            ]);
             CazcoPayLogger::log('Webhook não configurado: segredo ausente.', 3, [
                 'ip' => Tools::getRemoteAddr(),
             ]);
@@ -97,16 +107,19 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
             exit;
         }
 
-        $providedToken = (string) Tools::getValue('token', '');
         $method = isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : '';
 
         CazcoPayLogger::log('Webhook recebido.', 1, [
             'ip' => Tools::getRemoteAddr(),
             'method' => $method,
-            'has_token' => $providedToken !== '',
+            'has_token' => $this->providedToken !== '',
         ]);
 
-        if ($providedToken !== $this->secret) {
+        if ($this->providedToken !== $this->secret) {
+            $this->persistPostbackLog(404, 'invalid_token', [
+                'token_valid' => 0,
+                'error_message' => 'Token do webhook inválido.',
+            ]);
             CazcoPayLogger::log('Token do webhook inválido.', 3, [
                 'ip' => Tools::getRemoteAddr(),
             ]);
@@ -117,6 +130,10 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
         }
 
         if ($method !== 'POST') {
+            $this->persistPostbackLog(405, 'invalid_method', [
+                'token_valid' => 1,
+                'error_message' => 'Método HTTP inválido: ' . $method,
+            ]);
             CazcoPayLogger::log('Webhook com método inválido.', 2, [
                 'ip' => Tools::getRemoteAddr(),
                 'method' => $method,
@@ -139,6 +156,12 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
      */
     public function postProcess()
     {
+        $payload = [];
+        $status = '';
+        $transactionId = '';
+        $objectId = '';
+        $orderId = 0;
+
         try {
             $this->rawPayload = (string) file_get_contents('php://input');
             $preview = $this->rawPayload;
@@ -165,6 +188,7 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
             $order = $this->resolveOrderFromPayload($data, $transactionId, $objectId);
 
             if ($order instanceof Order && Validate::isLoadedObject($order)) {
+                $orderId = (int) $order->id;
                 $this->syncOrderStatus($order, $status);
                 $this->saveCazcoPayPayload($order, $transactionId, $payload, $data);
             } else {
@@ -174,12 +198,31 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
                 ]);
             }
 
+            $this->persistPostbackLog(200, 'ok', [
+                'token_valid' => 1,
+                'payment_status' => $status,
+                'transaction_id' => $transactionId,
+                'object_id' => $objectId,
+                'id_order' => $orderId,
+                'payload' => $payload,
+            ]);
+
             header('Content-Type: application/json');
             header('Cache-Control: no-store, no-cache, must-revalidate');
             echo json_encode(['status' => 'ok'], JSON_UNESCAPED_UNICODE);
             exit;
         } catch (\Throwable $e) {
+            $this->persistPostbackLog(500, 'internal_error', [
+                'token_valid' => $this->providedToken !== '' && $this->providedToken === $this->secret ? 1 : 0,
+                'payment_status' => $status,
+                'transaction_id' => $transactionId,
+                'object_id' => $objectId,
+                'id_order' => $orderId,
+                'error_message' => $e->getMessage(),
+                'payload' => !empty($payload) ? $payload : $this->rawPayload,
+            ]);
             http_response_code(500);
+            header('Content-Type: application/json');
             echo json_encode(['error' => 'internal_error'], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -280,5 +323,42 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
             'amount' => isset($data['amount']) ? (int) $data['amount'] : null,
             'payload' => $payload,
         ]);
+    }
+
+    private function persistPostbackLog($httpCode, $result, array $context = [])
+    {
+        if (!$this->module || !method_exists($this->module, 'saveWebhookLog')) {
+            return;
+        }
+
+        $this->module->saveWebhookLog([
+            'request_method' => isset($_SERVER['REQUEST_METHOD']) ? (string) $_SERVER['REQUEST_METHOD'] : '',
+            'request_uri' => isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '',
+            'ip_address' => Tools::getRemoteAddr(),
+            'token_valid' => isset($context['token_valid']) ? (int) $context['token_valid'] : 0,
+            'http_code' => (int) $httpCode,
+            'result' => (string) $result,
+            'payment_status' => isset($context['payment_status']) ? (string) $context['payment_status'] : '',
+            'transaction_id' => isset($context['transaction_id']) ? (string) $context['transaction_id'] : '',
+            'object_id' => isset($context['object_id']) ? (string) $context['object_id'] : '',
+            'id_order' => isset($context['id_order']) ? (int) $context['id_order'] : 0,
+            'error_message' => isset($context['error_message']) ? (string) $context['error_message'] : '',
+            'payload' => $context['payload'] ?? '',
+        ]);
+    }
+
+    private function resolveProvidedToken()
+    {
+        $token = trim((string) Tools::getValue('token', ''));
+        if ($token !== '') {
+            return $token;
+        }
+
+        $uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        if ($uri !== '' && preg_match('#/cazcopay/webhook/([_A-Za-z0-9-]{8,})(?:[/?#]|$)#', $uri, $matches)) {
+            return (string) $matches[1];
+        }
+
+        return '';
     }
 }
