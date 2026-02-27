@@ -99,7 +99,7 @@ class CazcoPay extends PaymentModule
     {
         $output = '';
         $activeTab = (string) Tools::getValue('cazco_tab', 'settings');
-        if (!in_array($activeTab, ['settings', 'logs'], true)) {
+        if (!in_array($activeTab, ['settings', 'logs', 'transactions'], true)) {
             $activeTab = 'settings';
         }
 
@@ -168,6 +168,9 @@ class CazcoPay extends PaymentModule
         if ($activeTab === 'logs') {
             return $output . $this->renderPostbackLogsTab();
         }
+        if ($activeTab === 'transactions') {
+            return $output . $this->renderTransactionsTab();
+        }
 
         return $output . $this->renderForm();
     }
@@ -176,15 +179,19 @@ class CazcoPay extends PaymentModule
     {
         $settingsUrl = $this->getAdminModuleUrl(['cazco_tab' => 'settings']);
         $logsUrl = $this->getAdminModuleUrl(['cazco_tab' => 'logs']);
+        $transactionsUrl = $this->getAdminModuleUrl(['cazco_tab' => 'transactions']);
 
         return sprintf(
-            '<ul class="nav nav-tabs"><li class="%s"><a href="%s">%s</a></li><li class="%s"><a href="%s">%s</a></li></ul><div style="height:15px"></div>',
+            '<ul class="nav nav-tabs"><li class="%s"><a href="%s">%s</a></li><li class="%s"><a href="%s">%s</a></li><li class="%s"><a href="%s">%s</a></li></ul><div style="height:15px"></div>',
             $activeTab === 'settings' ? 'active' : '',
             Tools::safeOutput($settingsUrl),
             $this->l('Configurações'),
             $activeTab === 'logs' ? 'active' : '',
             Tools::safeOutput($logsUrl),
-            $this->l('Logs postback')
+            $this->l('Logs postback'),
+            $activeTab === 'transactions' ? 'active' : '',
+            Tools::safeOutput($transactionsUrl),
+            $this->l('Transações')
         );
     }
 
@@ -304,6 +311,137 @@ class CazcoPay extends PaymentModule
             $nextUrl = $this->getAdminModuleUrl([
                 'cazco_tab' => 'logs',
                 'cazco_log_page' => $page + 1,
+            ]);
+            $parts[] = '<a class="btn btn-default" href="' . Tools::safeOutput($nextUrl) . '">' . $this->l('Próxima') . '</a>';
+        }
+
+        $parts[] = '</div>';
+
+        return implode('', $parts);
+    }
+
+    private function renderTransactionsTab()
+    {
+        $page = max(1, (int) Tools::getValue('cazco_tx_page', 1));
+        $perPage = 30;
+        $total = $this->countTransactions();
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+
+        $transactions = $this->getTransactions($page, $perPage);
+        $rowsHtml = '';
+        $modalsHtml = '';
+        $rowIndex = 0;
+        $currencyId = (int) ($this->context->currency ? $this->context->currency->id : Configuration::get('PS_CURRENCY_DEFAULT'));
+
+        foreach ($transactions as $row) {
+            $rowIndex++;
+            $date = !empty($row['date_add']) ? Tools::displayDate($row['date_add'], null, true) : '-';
+            $paymentMethod = !empty($row['payment_method']) ? Tools::safeOutput(strtoupper((string) $row['payment_method'])) : '-';
+            $transactionId = !empty($row['transaction_id']) ? Tools::safeOutput((string) $row['transaction_id']) : '-';
+            $idOrder = isset($row['id_order']) ? (int) $row['id_order'] : 0;
+            $orderRef = !empty($row['order_reference']) ? (string) $row['order_reference'] : '';
+            $amountCents = isset($row['amount']) ? (int) $row['amount'] : 0;
+            $amountFormatted = $amountCents > 0
+                ? Tools::displayPrice((float) $amountCents / 100, $currencyId)
+                : '-';
+
+            $orderLabel = '-';
+            if ($idOrder > 0) {
+                $orderLabel = '#' . $idOrder;
+                if ($orderRef !== '') {
+                    $orderLabel .= ' (' . Tools::safeOutput($orderRef) . ')';
+                }
+            }
+
+            $statusLabel = !empty($row['order_state_name'])
+                ? Tools::safeOutput((string) $row['order_state_name'])
+                : '-';
+            $payload = isset($row['payload']) ? trim((string) $row['payload']) : '';
+            if (strlen($payload) > 12000) {
+                $payload = substr($payload, 0, 12000) . "\n...[truncado]";
+            }
+            $payloadHtml = '-';
+            if ($payload !== '') {
+                $modalId = 'cazco-payload-modal-' . (int) $page . '-' . (int) $rowIndex;
+                $modalLabelId = $modalId . '-label';
+                $payloadHtml = '<button type="button" class="btn btn-default btn-xs" data-toggle="modal" data-target="#'
+                    . Tools::safeOutput($modalId)
+                    . '">'
+                    . $this->l('Ver')
+                    . '</button>';
+                $modalsHtml .= '<div class="modal fade" id="' . Tools::safeOutput($modalId) . '" tabindex="-1" role="dialog" aria-labelledby="' . Tools::safeOutput($modalLabelId) . '" aria-hidden="true">'
+                    . '<div class="modal-dialog modal-lg" role="document">'
+                    . '<div class="modal-content">'
+                    . '<div class="modal-header">'
+                    . '<button type="button" class="close" data-dismiss="modal" aria-label="' . $this->l('Fechar') . '"><span aria-hidden="true">&times;</span></button>'
+                    . '<h4 class="modal-title" id="' . Tools::safeOutput($modalLabelId) . '">' . $this->l('Payload da transação') . ' ' . $transactionId . '</h4>'
+                    . '</div>'
+                    . '<div class="modal-body"><pre style="max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-word;">'
+                    . Tools::safeOutput($payload)
+                    . '</pre></div>'
+                    . '<div class="modal-footer">'
+                    . '<button type="button" class="btn btn-default" data-dismiss="modal">' . $this->l('Fechar') . '</button>'
+                    . '</div>'
+                    . '</div>'
+                    . '</div>'
+                    . '</div>';
+            }
+
+            $rowsHtml .= sprintf(
+                '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="text-right">%s</td><td>%s</td><td>%s</td></tr>',
+                Tools::safeOutput($date),
+                $orderLabel,
+                $paymentMethod,
+                $transactionId,
+                Tools::safeOutput($amountFormatted),
+                $statusLabel,
+                $payloadHtml
+            );
+        }
+
+        if ($rowsHtml === '') {
+            $rowsHtml = '<tr><td colspan="7" class="text-center">' . $this->l('Nenhuma transação encontrada.') . '</td></tr>';
+        }
+
+        $pagination = $this->renderTransactionsPagination($page, $totalPages);
+
+        return '<div class="panel">'
+            . '<h3><i class="icon-credit-card"></i> ' . $this->l('Transações criadas') . '</h3>'
+            . '<p>' . sprintf($this->l('Total de registros: %d'), (int) $total) . '</p>'
+            . '<div class="table-responsive"><table class="table table-striped table-bordered">'
+            . '<thead><tr><th>' . $this->l('Data') . '</th><th>' . $this->l('Pedido') . '</th><th>' . $this->l('Método') . '</th><th>' . $this->l('Transação') . '</th><th class="text-right">' . $this->l('Valor') . '</th><th>' . $this->l('Status do pedido') . '</th><th>Payload</th></tr></thead>'
+            . '<tbody>' . $rowsHtml . '</tbody></table></div>'
+            . $modalsHtml
+            . $pagination
+            . '</div>';
+    }
+
+    private function renderTransactionsPagination($page, $totalPages)
+    {
+        if ($totalPages <= 1) {
+            return '';
+        }
+
+        $parts = ['<div class="clearfix">'];
+        if ($page > 1) {
+            $prevUrl = $this->getAdminModuleUrl([
+                'cazco_tab' => 'transactions',
+                'cazco_tx_page' => $page - 1,
+            ]);
+            $parts[] = '<a class="btn btn-default" href="' . Tools::safeOutput($prevUrl) . '">' . $this->l('Anterior') . '</a>';
+        }
+
+        $parts[] = '<span style="display:inline-block;margin:0 10px;line-height:32px;">'
+            . sprintf($this->l('Página %d de %d'), (int) $page, (int) $totalPages)
+            . '</span>';
+
+        if ($page < $totalPages) {
+            $nextUrl = $this->getAdminModuleUrl([
+                'cazco_tab' => 'transactions',
+                'cazco_tx_page' => $page + 1,
             ]);
             $parts[] = '<a class="btn btn-default" href="' . Tools::safeOutput($nextUrl) . '">' . $this->l('Próxima') . '</a>';
         }
@@ -849,10 +987,20 @@ class CazcoPay extends PaymentModule
         );
     }
 
+    public function ensureCardOrderState()
+    {
+        return $this->ensureOrderStateByConfigKey(
+            CazcoPayConfig::KEY_OS_CARD,
+            'Aguardando pagamento Cartão',
+            '#1E7E34'
+        );
+    }
+
     protected function installOrderStates()
     {
         return $this->ensurePixOrderState() > 0
-            && $this->ensureBoletoOrderState() > 0;
+            && $this->ensureBoletoOrderState() > 0
+            && $this->ensureCardOrderState() > 0;
     }
 
     protected function uninstallOrderStates()
@@ -860,6 +1008,7 @@ class CazcoPay extends PaymentModule
         $keys = [
             CazcoPayConfig::KEY_OS_PIX,
             CazcoPayConfig::KEY_OS_BOLETO,
+            CazcoPayConfig::KEY_OS_CARD,
         ];
         foreach ($keys as $configKey) {
             $idState = (int) Configuration::get($configKey);
@@ -1027,6 +1176,29 @@ class CazcoPay extends PaymentModule
     private function countWebhookLogs()
     {
         return (int) Db::getInstance()->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'cazcopay_webhook_log`');
+    }
+
+    private function getTransactions($page, $perPage)
+    {
+        $offset = max(0, ((int) $page - 1) * (int) $perPage);
+        $limit = max(1, (int) $perPage);
+
+        $idLang = (int) $this->context->language->id;
+        $sql = new DbQuery();
+        $sql->select('cp.id_order, cp.payment_method, cp.transaction_id, cp.amount, cp.payload, cp.date_add, o.reference AS order_reference, osl.name AS order_state_name');
+        $sql->from('cazcopay_order', 'cp');
+        $sql->leftJoin('orders', 'o', 'o.id_order = cp.id_order');
+        $sql->leftJoin('order_state_lang', 'osl', 'osl.id_order_state = o.current_state AND osl.id_lang = ' . $idLang);
+        $sql->orderBy('cp.id_cazcopay_order DESC');
+        $sql->limit($limit, $offset);
+
+        $rows = Db::getInstance()->executeS($sql);
+        return is_array($rows) ? $rows : [];
+    }
+
+    private function countTransactions()
+    {
+        return (int) Db::getInstance()->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'cazcopay_order`');
     }
 
     private function clearWebhookLogs()

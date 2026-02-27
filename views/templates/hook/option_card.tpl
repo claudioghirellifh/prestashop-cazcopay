@@ -1,46 +1,124 @@
 <div class="cazcopay-option cazcopay-option--card">
-  <p>Preencha os dados do cartão. A cobrança será efetuada na confirmação.</p>
+  <style>
+    .cazcopay-option--card .cazco-card-intro {
+      margin-bottom: 1rem;
+      color: #4f5d6b;
+    }
+    .cazcopay-option--card .cazco-label {
+      display: block;
+      margin-bottom: .4rem;
+      font-weight: 600;
+      color: #2f3b47;
+    }
+    .cazcopay-option--card .cazco-field {
+      margin-bottom: .9rem;
+    }
+    .cazcopay-option--card .cazco-brand-wrap {
+      margin-top: .35rem;
+      color: #66707a;
+      font-size: .85rem;
+    }
+    .cazcopay-option--card .cazco-brand-badge {
+      display: inline-block;
+      margin-left: .35rem;
+      padding: .1rem .45rem;
+      border-radius: 999px;
+      font-size: .75rem;
+      font-weight: 600;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+      background: #eef2f5;
+      color: #3b4a58;
+    }
+    .cazcopay-option--card .cazco-summary {
+      border: 1px solid #d9e0e7;
+      border-radius: 6px;
+      background: #fafcfe;
+      padding: .85rem .95rem;
+      margin-top: .25rem;
+    }
+    .cazcopay-option--card .cazco-summary-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: .75rem;
+      font-size: .92rem;
+      color: #4a5865;
+    }
+    .cazcopay-option--card .cazco-summary-row + .cazco-summary-row {
+      margin-top: .45rem;
+      padding-top: .45rem;
+      border-top: 1px dashed #d9e0e7;
+    }
+    .cazcopay-option--card .cazco-summary-value {
+      font-weight: 700;
+      color: #243241;
+      text-align: right;
+    }
+  </style>
 
-  <form id="cazco-card-form" onsubmit="return false;" class="mb-2">
+  <p class="cazco-card-intro">Preencha os dados do cartão. A cobrança será efetuada na confirmação.</p>
+
+  <div id="cazco-card-form" class="mb-2">
     <div class="row">
-      <div class="form-group col-md-8">
-        <label for="cc-number">Número do cartão</label>
+      <div class="form-group col-md-12 cazco-field">
+        <label for="cc-number" class="cazco-label">Número do cartão</label>
         <input class="form-control" id="cc-number" name="cc-number" inputmode="numeric" autocomplete="cc-number" placeholder="0000 0000 0000 0000" maxlength="23">
-        <small class="text-muted">Bandeira: <span id="cc-brand">—</span></small>
+        <div class="cazco-brand-wrap">Bandeira: <span id="cc-brand" class="cazco-brand-badge">—</span></div>
       </div>
-      <div class="form-group col-md-4">
-        <label for="cc-holder">Nome impresso</label>
+    </div>
+
+    <div class="row">
+      <div class="form-group col-md-12 cazco-field">
+        <label for="cc-holder" class="cazco-label">Nome impresso</label>
         <input class="form-control" id="cc-holder" name="cc-holder" autocomplete="cc-name" placeholder="NOME COMO NO CARTÃO">
       </div>
     </div>
 
     <div class="row">
-      <div class="form-group col-md-3">
-        <label for="cc-exp-month">Mês</label>
+      <div class="form-group col-md-4 col-sm-6 cazco-field">
+        <label for="cc-document-cpf" class="cazco-label">CPF do titular</label>
+        <input class="form-control" id="cc-document-cpf" name="cc-document-cpf" inputmode="numeric" autocomplete="off" placeholder="000.000.000-00" maxlength="14">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="form-group col-md-3 col-sm-4 cazco-field">
+        <label for="cc-exp-month" class="cazco-label">Mês</label>
         <select class="form-control" id="cc-exp-month" name="cc-exp-month">
           {for $m=1 to 12}
-            <option value="{$m}">{$m}</option>
+            <option value="{$m}">{$m|string_format:"%02d"}</option>
           {/for}
         </select>
       </div>
-      <div class="form-group col-md-3">
-        <label for="cc-exp-year">Ano</label>
+      <div class="form-group col-md-3 col-sm-4 cazco-field">
+        <label for="cc-exp-year" class="cazco-label">Ano</label>
         <select class="form-control" id="cc-exp-year" name="cc-exp-year"></select>
       </div>
-      <div class="form-group col-md-3">
-        <label for="cc-cvv">CVV</label>
+      <div class="form-group col-md-3 col-sm-4 cazco-field">
+        <label for="cc-cvv" class="cazco-label">CVV</label>
         <input class="form-control" id="cc-cvv" name="cc-cvv" inputmode="numeric" autocomplete="cc-csc" placeholder="CVV" maxlength="4">
       </div>
-      <div class="form-group col-md-3">
-        <label for="cc-installments">Parcelas</label>
+    </div>
+
+    <div class="row">
+      <div class="form-group col-md-6 col-sm-12 cazco-field">
+        <label for="cc-installments" class="cazco-label">Nº de parcelas</label>
         <select class="form-control" id="cc-installments" name="cc-installments"></select>
-        <small class="text-muted">
-          Total do pedido: <span id="order-total"></span><br>
-          <span id="installment-details"></span>
-        </small>
       </div>
     </div>
-  </form>
+
+    <div class="cazco-summary">
+      <div class="cazco-summary-row">
+        <span>Total do pedido</span>
+        <strong id="order-total" class="cazco-summary-value">—</strong>
+      </div>
+      <div class="cazco-summary-row">
+        <span>Simulação da parcela</span>
+        <strong id="installment-details" class="cazco-summary-value">—</strong>
+      </div>
+    </div>
+  </div>
 
   <script>
     var cazcoPayCardInit = function() {
@@ -57,7 +135,10 @@
       }
       var brandSpan = document.getElementById('cc-brand');
       var ccNum = document.getElementById('cc-number');
+      var ccHolder = document.getElementById('cc-holder');
+      var ccDocumentCpf = document.getElementById('cc-document-cpf');
       var ccCvv = document.getElementById('cc-cvv');
+      var monthSel = document.getElementById('cc-exp-month');
       var yearSel = document.getElementById('cc-exp-year');
       var instSel = document.getElementById('cc-installments');
       var orderTotal = document.getElementById('order-total');
@@ -187,6 +268,167 @@
         if (/^(4011(78|79)|431274|438935|451416|457393|504175|627780|636297|636368|650\d{2}|651\d{2}|652\d{2})/.test(num)) return 'elo';
         return '';
       }
+
+      function formatCpf(value) {
+        var digits = (value || '').replace(/\D/g, '').slice(0, 11);
+        if (digits.length <= 3) {
+          return digits;
+        }
+        if (digits.length <= 6) {
+          return digits.slice(0, 3) + '.' + digits.slice(3);
+        }
+        if (digits.length <= 9) {
+          return digits.slice(0, 3) + '.' + digits.slice(3, 6) + '.' + digits.slice(6);
+        }
+        return digits.slice(0, 3) + '.' + digits.slice(3, 6) + '.' + digits.slice(6, 9) + '-' + digits.slice(9);
+      }
+
+      function isCazcoPaymentForm(form) {
+        if (!form || form.tagName !== 'FORM') {
+          return false;
+        }
+        var action = (form.getAttribute('action') || '').toLowerCase();
+        return action.indexOf('module=cazcopay') !== -1
+          || action.indexOf('/module/cazcopay/payment') !== -1
+          || action.indexOf('/cazcopay/payment') !== -1;
+      }
+
+      function findHiddenInput(form, name) {
+        var hiddenInputs = form.querySelectorAll('input[type="hidden"]');
+        for (var i = 0; i < hiddenInputs.length; i++) {
+          if (hiddenInputs[i].name === name) {
+            return hiddenInputs[i];
+          }
+        }
+        return null;
+      }
+
+      function upsertHiddenInput(form, name, value) {
+        var input = findHiddenInput(form, name);
+        if (!input) {
+          input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = name;
+          form.appendChild(input);
+        }
+        input.value = value;
+      }
+
+      function collectCardValues() {
+        return {
+          'cc-number': ccNum ? ccNum.value || '' : '',
+          'cc-holder': ccHolder ? ccHolder.value || '' : '',
+          'cc-document-cpf': ccDocumentCpf ? ccDocumentCpf.value || '' : '',
+          'cc-exp-month': monthSel ? monthSel.value || '' : '',
+          'cc-exp-year': yearSel ? yearSel.value || '' : '',
+          'cc-cvv': ccCvv ? ccCvv.value || '' : '',
+          'cc-installments': instSel ? instSel.value || '' : ''
+        };
+      }
+
+      function getCandidateForms(submitter) {
+        var forms = [];
+        var seen = [];
+
+        function addForm(form) {
+          if (!form || form.tagName !== 'FORM') {
+            return;
+          }
+          if (seen.indexOf(form) !== -1) {
+            return;
+          }
+          seen.push(form);
+          forms.push(form);
+        }
+
+        if (submitter && submitter.form) {
+          addForm(submitter.form);
+        }
+        if (submitter) {
+          var formId = submitter.getAttribute('form');
+          if (formId) {
+            addForm(document.getElementById(formId));
+          }
+        }
+
+        var allForms = document.querySelectorAll('form');
+        for (var i = 0; i < allForms.length; i++) {
+          if (isCazcoPaymentForm(allForms[i])) {
+            addForm(allForms[i]);
+          }
+        }
+
+        return forms;
+      }
+
+      function syncCardValuesToForms(forms) {
+        if (!forms || !forms.length) {
+          return;
+        }
+        var values = collectCardValues();
+        for (var i = 0; i < forms.length; i++) {
+          var form = forms[i];
+          if (!isCazcoPaymentForm(form)) {
+            continue;
+          }
+          upsertHiddenInput(form, 'cc-number', values['cc-number']);
+          upsertHiddenInput(form, 'cc-holder', values['cc-holder']);
+          upsertHiddenInput(form, 'cc-document-cpf', values['cc-document-cpf']);
+          upsertHiddenInput(form, 'cc-exp-month', values['cc-exp-month']);
+          upsertHiddenInput(form, 'cc-exp-year', values['cc-exp-year']);
+          upsertHiddenInput(form, 'cc-cvv', values['cc-cvv']);
+          upsertHiddenInput(form, 'cc-installments', values['cc-installments']);
+        }
+      }
+
+      function syncToKnownForms() {
+        syncCardValuesToForms(getCandidateForms(null));
+      }
+
+      if (ccNum) {
+        ccNum.addEventListener('input', syncToKnownForms);
+      }
+      if (ccHolder) {
+        ccHolder.addEventListener('input', syncToKnownForms);
+      }
+      if (ccDocumentCpf) {
+        ccDocumentCpf.addEventListener('input', function() {
+          this.value = formatCpf(this.value);
+          syncToKnownForms();
+        });
+      }
+      if (monthSel) {
+        monthSel.addEventListener('change', syncToKnownForms);
+      }
+      if (yearSel) {
+        yearSel.addEventListener('change', syncToKnownForms);
+      }
+      if (ccCvv) {
+        ccCvv.addEventListener('input', syncToKnownForms);
+      }
+      if (instSel) {
+        instSel.addEventListener('change', syncToKnownForms);
+      }
+
+      document.addEventListener('click', function(event) {
+        var submitter = event.target && event.target.closest
+          ? event.target.closest('#payment-confirmation button[type="submit"], #payment-confirmation input[type="submit"]')
+          : null;
+        if (!submitter) {
+          return;
+        }
+        syncCardValuesToForms(getCandidateForms(submitter));
+      }, true);
+
+      document.addEventListener('submit', function(event) {
+        var form = event.target;
+        if (!isCazcoPaymentForm(form)) {
+          return;
+        }
+        syncCardValuesToForms([form]);
+      }, true);
+
+      syncToKnownForms();
       {/literal}
     };
 

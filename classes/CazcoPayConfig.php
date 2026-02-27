@@ -13,6 +13,7 @@ class CazcoPayConfig
     public const KEY_INSTALLMENTS_MAX = 'CAZCO_INSTALLMENTS_MAX';
     public const KEY_OS_PIX = 'CAZCO_OS_PIX';
     public const KEY_OS_BOLETO = 'CAZCO_OS_BOLETO';
+    public const KEY_OS_CARD = 'CAZCO_OS_CARD';
     public const KEY_WEBHOOK_SECRET = 'CAZCO_WEBHOOK_SECRET';
     public const KEY_DOCUMENT_SOURCE = 'CAZCO_DOCUMENT_SOURCE';
     public const KEY_DOCUMENT_CUSTOMER_FIELD = 'CAZCO_DOCUMENT_CUSTOMER_FIELD';
@@ -34,6 +35,7 @@ class CazcoPayConfig
         $ok = $ok && Configuration::updateValue(self::KEY_INSTALLMENTS_MAX, 12);
         $ok = $ok && Configuration::updateValue(self::KEY_OS_PIX, 0);
         $ok = $ok && Configuration::updateValue(self::KEY_OS_BOLETO, 0);
+        $ok = $ok && Configuration::updateValue(self::KEY_OS_CARD, 0);
         $ok = $ok && Configuration::updateValue(self::KEY_WEBHOOK_SECRET, Tools::passwdGen(32));
         $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_SOURCE, 'auto');
         $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_CUSTOMER_FIELD, '');
@@ -76,6 +78,7 @@ class CazcoPayConfig
         }
         $ok = $ok && Configuration::deleteByName(self::KEY_OS_PIX);
         $ok = $ok && Configuration::deleteByName(self::KEY_OS_BOLETO);
+        $ok = $ok && Configuration::deleteByName(self::KEY_OS_CARD);
         return $ok;
     }
 

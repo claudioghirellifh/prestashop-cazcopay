@@ -15,6 +15,7 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
         \CazcoPayLogger::log('Acessou front/payment', 1, [
             'method' => $method,
             'cart_id' => (int) $this->context->cart->id,
+            'request_method' => isset($_SERVER['REQUEST_METHOD']) ? (string) $_SERVER['REQUEST_METHOD'] : '',
         ]);
 
         // Valida método habilitado nas configurações
@@ -47,6 +48,7 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
                 $tpl = 'payment_pix.tpl';
                 break;
             case 'card':
+                $this->handleCard($cart);
                 $tpl = 'payment_card.tpl';
                 break;
             case 'boleto':
@@ -230,6 +232,117 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
         }
     }
 
+    /**
+     * Gera transação de Cartão e finaliza o pedido.
+     */
+    protected function handleCard(Cart $cart)
+    {
+        try {
+            $payload = $this->buildCardPayload($cart);
+            if ($payload === null) {
+                $requestMethod = isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : '';
+                if ($requestMethod === 'POST') {
+                    $postKeys = [];
+                    if (is_array($_POST)) {
+                        $postKeys = array_slice(array_keys($_POST), 0, 50);
+                    }
+                    \CazcoPayLogger::log('POST de cartão sem campos esperados', 2, [
+                        'cart_id' => (int) $cart->id,
+                        'post_keys' => $postKeys,
+                    ]);
+                    throw new Exception('Dados do cartão não recebidos na submissão do checkout.');
+                }
+                return;
+            }
+
+            \CazcoPayLogger::log('Criando transação Cartão', 1, [
+                'cart_id' => (int) $cart->id,
+                'amount' => isset($payload['amount']) ? (int) $payload['amount'] : null,
+                'installments' => isset($payload['installments']) ? (int) $payload['installments'] : 1,
+            ]);
+
+            $client = new \CazcoPayApiClient();
+            $result = $client->createTransaction($payload);
+            $body = $result['body'];
+            $transactionId = isset($body['id']) ? (string) $body['id'] : '';
+            if ($transactionId === '') {
+                throw new Exception('Resposta da API sem identificador da transação.');
+            }
+
+            $status = isset($body['status']) ? strtolower(trim((string) $body['status'])) : '';
+
+            \CazcoPayLogger::log('Transação Cartão criada com sucesso', 1, [
+                'cart_id' => (int) $cart->id,
+                'transaction_id' => $transactionId,
+                'amount' => (int) $payload['amount'],
+                'status' => $status,
+            ]);
+
+            $customer = new Customer((int) $cart->id_customer);
+            $currency = $this->context->currency;
+
+            $orderState = 0;
+            if ($status === 'paid') {
+                $orderState = (int) Configuration::get('PS_OS_PAYMENT');
+            }
+            if ($orderState <= 0) {
+                $orderState = $this->module->ensureCardOrderState();
+            }
+            if ($orderState <= 0) {
+                throw new Exception('Estado de pedido para Cartão não configurado.');
+            }
+
+            $this->module->validateOrder(
+                (int) $cart->id,
+                $orderState,
+                (float) $payload['amount'] / 100,
+                $this->module->l('Cazco Pay - Cartão', 'payment'),
+                null,
+                ['transaction_id' => $transactionId],
+                (int) $currency->id,
+                false,
+                $customer->secure_key
+            );
+
+            $idOrder = (int) $this->module->currentOrder;
+
+            $this->module->savePixData($idOrder, [
+                'payment_method' => 'card',
+                'transaction_id' => $transactionId,
+                'qrcode' => '',
+                'url' => '',
+                'expiration' => isset($body['createdAt']) ? $body['createdAt'] : null,
+                'amount' => (int) $payload['amount'],
+                'payload' => $body,
+            ]);
+
+            $redirectUrl = $this->context->link->getPageLink(
+                'order-confirmation',
+                true,
+                null,
+                [
+                    'id_cart' => (int) $cart->id,
+                    'id_module' => (int) $this->module->id,
+                    'id_order' => $idOrder,
+                    'key' => $customer->secure_key,
+                ]
+            );
+
+            Tools::redirect($redirectUrl);
+            exit;
+        } catch (\Exception $e) {
+            \CazcoPayLogger::log('Erro ao criar transação Cartão', 3, [
+                'cart_id' => (int) $cart->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            $this->context->smarty->assign([
+                'cazco_error' => $this->module->l('Não foi possível processar o cartão no momento. Revise os dados e tente novamente.'),
+                'cazco_error_detail' => $e->getMessage(),
+            ]);
+        }
+    }
+
     protected function extractBoletoDigitableLine(array $boleto)
     {
         $keys = ['digitableLine', 'line', 'barcode', 'barCode'];
@@ -274,6 +387,92 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
     protected function buildBoletoPayload(Cart $cart)
     {
         return $this->buildTransactionPayload($cart, 'boleto');
+    }
+
+    /**
+     * Monta payload para criação da transação de cartão.
+     */
+    protected function buildCardPayload(Cart $cart)
+    {
+        $number = preg_replace('/\D+/', '', (string) Tools::getValue('cc-number', ''));
+        $holderName = trim((string) Tools::getValue('cc-holder', ''));
+        $cpfDocument = preg_replace('/\D+/', '', (string) Tools::getValue('cc-document-cpf', ''));
+        $expMonth = (int) Tools::getValue('cc-exp-month', 0);
+        $expYear = (int) Tools::getValue('cc-exp-year', 0);
+        $cvv = preg_replace('/\D+/', '', (string) Tools::getValue('cc-cvv', ''));
+        $installments = (int) Tools::getValue('cc-installments', 1);
+
+        if ($number === '' && $holderName === '' && $cpfDocument === '' && $expMonth === 0 && $expYear === 0 && $cvv === '') {
+            return null;
+        }
+
+        if (strlen($number) < 13 || strlen($number) > 19) {
+            throw new Exception('Número do cartão inválido.');
+        }
+        if ($holderName === '') {
+            throw new Exception('Nome impresso do cartão é obrigatório.');
+        }
+        if ($cpfDocument === '') {
+            throw new Exception('CPF do titular do cartão é obrigatório.');
+        }
+        if (!$this->isValidCpf($cpfDocument)) {
+            throw new Exception('CPF do titular do cartão inválido.');
+        }
+        if ($expMonth < 1 || $expMonth > 12) {
+            throw new Exception('Mês de validade do cartão inválido.');
+        }
+        if ($expYear < (int) date('Y') || $expYear > ((int) date('Y') + 20)) {
+            throw new Exception('Ano de validade do cartão inválido.');
+        }
+        if (strlen($cvv) < 3 || strlen($cvv) > 4) {
+            throw new Exception('CVV do cartão inválido.');
+        }
+
+        $maxInstallments = \CazcoPayConfig::getInstallmentsMax();
+        $installments = max(1, min($maxInstallments, $installments));
+
+        $payload = $this->buildTransactionPayload($cart, 'credit_card');
+        $payload['installments'] = $installments;
+        $payload['card'] = [
+            'number' => $number,
+            'holderName' => $holderName,
+            'expirationMonth' => $expMonth,
+            'expirationYear' => $expYear,
+            'cvv' => $cvv,
+        ];
+        if (!isset($payload['customer']) || !is_array($payload['customer'])) {
+            $payload['customer'] = [];
+        }
+        $payload['customer']['document'] = [
+            'number' => $cpfDocument,
+            'type' => 'cpf',
+        ];
+
+        return $payload;
+    }
+
+    protected function isValidCpf($cpf)
+    {
+        $digits = preg_replace('/\D+/', '', (string) $cpf);
+        if (strlen($digits) !== 11) {
+            return false;
+        }
+        if (preg_match('/^(\d)\1{10}$/', $digits)) {
+            return false;
+        }
+
+        for ($t = 9; $t < 11; $t++) {
+            $sum = 0;
+            for ($i = 0; $i < $t; $i++) {
+                $sum += ((int) $digits[$i]) * (($t + 1) - $i);
+            }
+            $digit = ((10 * $sum) % 11) % 10;
+            if ((int) $digits[$t] !== $digit) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

@@ -6,9 +6,9 @@
 
 ## Setup rapido
 - Modulo: `modules/cazcopay`
-- Checkout local: `http://local.presta/index.php?controller=order`
-- Limpar cache apos alterar PHP/Templates:
-  - `docker compose exec ps_php rm -rf /var/www/presta/var/cache/*`
+- Checkout local: `https://store.localhost/compra`
+- Limpar cache apos alterar PHP/Templates (workspace `cazcoio`):
+  - `docker compose --project-name cazcoio -f /home/claudio/Workspace/DockeZ/docker-compose.yml -f /home/claudio/Workspace/DockeZ/workspaces/cazcoio/compose.yml exec -u www-data cazcoio-php bash -lc 'cd /var/www/html/sites/store.localhost/public && php bin/console cache:clear --no-warmup && php bin/console cache:clear --env=prod --no-debug --no-warmup'`
 
 ## Observabilidade e logs
 - PHP-FPM: `docker compose logs --tail 200 ps_php`
@@ -35,7 +35,7 @@
 ## Estrutura principal do modulo
 - Modulo principal: `cazcopay.php`
 - Controllers:
-  - `controllers/front/payment.php` (fluxo PIX e Boleto)
+  - `controllers/front/payment.php` (fluxo PIX, Boleto e Cartao)
   - `controllers/front/webhook.php` (endpoint de webhook)
   - `controllers/front/barcode.php` (imagem de codigo de barras do boleto)
 - Classes:
@@ -73,6 +73,17 @@
 - Boleto no FO: agora exibe também `Código de barras` no retorno e no detalhe do pedido; quando a API não envia `barcode`, o módulo deriva a partir da linha digitável (47 -> 44 dígitos).
 - A imagem escaneável (barras preta/branca) é gerada no backend via `TCPDFBarcode` (`I25`) e servida pelo front controller `barcode`, evitando dependência externa.
 - Ajuste de UX no FO do boleto: removido bloco duplicado com código de barras numérico e botão de cópia; mantido somente imagem escaneável + linha digitável.
+- Checkout (cartão): formulário em `option_card.tpl` recebeu polimento visual (labels, espaçamento, bloco de resumo e alinhamento dos campos).
+- Checkout (cartão): layout ajustado para melhorar leitura: número do cartão em linha inteira, nome impresso abaixo e `Nº de parcelas` abaixo de validade/CVV.
+- Correção no front `payment_card.tpl`: script JS protegido com `{literal}` parcial para evitar erro de compilação Smarty (`Unexpected ":"`) ao avançar no método cartão.
+- Checkout (cartao): removido `form` aninhado no bloco de opcao para evitar perda de campos no submit final.
+- Checkout (cartao): sincronizacao via JS dos campos de cartao para hidden inputs do formulario real enviado pelo PrestaShop.
+- Checkout (cartao): novo campo `CPF do titular` com mascara `000.000.000-00`.
+- Backend (cartao): CPF do titular passou a ser obrigatorio, validado (digitos verificadores) e enviado na transacao como `customer.document` no formato da API (`number` sem mascara e `type=cpf`).
+- Backend (cartao): transacao real implementada no `front/payment` para `paymentMethod=credit_card`, com criacao de pedido e persistencia de payload/transaction_id em `ps_cazcopay_order`.
+- Backend (cartao): novo estado de pedido `Aguardando pagamento Cartao` (`CAZCO_OS_CARD`) com criacao automatica no modulo.
+- BO: nova aba `Transações` ao lado de `Logs postback`, com listagem paginada das transacoes criadas.
+- BO: coluna `Payload` da aba `Transações` abre em modal via botao `Ver` para manter layout da tabela.
 
 ## Regras de atualizacao
 - A cada feature commitada, atualizar este `AGENTS.md`.

@@ -18,9 +18,13 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
   - `displayOrderDetail`
   - `moduleRoutes`
 - Metodos exibidos no checkout: PIX, Boleto e Cartao.
-- Fluxo de criacao real de transacao implementado no front controller para PIX e Boleto.
+- Fluxo de criacao real de transacao implementado no front controller para PIX, Boleto e Cartao.
 - Webhook implementado em `controllers/front/webhook.php` com validacao de token e log persistente.
 - Boleto no FO exibe imagem escaneavel (barras preta/branca) e linha digitavel no retorno e no detalhe do pedido.
+- Cartao no checkout teve melhoria de UX/alinhamento em `views/templates/hook/option_card.tpl`.
+- Cartao no checkout possui campo `CPF do titular` com mascara no front e envio normalizado para API.
+- `views/templates/front/payment_card.tpl` atua como fallback de erro e orientacao quando necessario.
+- BO do modulo possui abas `Configuracoes`, `Logs postback` e `Transacoes`.
 
 ## Estrutura tecnica
 
@@ -71,6 +75,8 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
   - `CAZCO_OS_PIX`
 - Estado de pedido Boleto:
   - `CAZCO_OS_BOLETO`
+- Estado de pedido Cartao:
+  - `CAZCO_OS_CARD`
 
 ## Fluxo de pagamento atual
 
@@ -87,7 +93,15 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
   - Em cenarios de sandbox com codigo curto, a imagem e gerada em fallback (`C128`) para manter leitura por camera.
   - Bloco numerico duplicado de codigo de barras foi removido do FO (retorno/detalhe), mantendo layout mais limpo.
 - Cartao:
-  - Opcoes e templates existem; integracao completa com criacao real de transacao ainda precisa evoluir conforme backlog.
+  - `controllers/front/payment.php` cria transacao real com `paymentMethod=credit_card`.
+  - Ao sucesso, cria pedido em `PS_OS_PAYMENT` (quando API retorna `paid`) ou em estado "Aguardando pagamento Cartao" (`CAZCO_OS_CARD`).
+  - Salva `transaction_id` e payload em `ps_cazcopay_order` e redireciona para `order-confirmation`.
+  - Formulario do checkout foi refinado visualmente e inclui CPF do titular com mascara.
+  - CPF do titular e obrigatorio para cartao e enviado no padrao da API:
+    - `customer.document.number` (somente digitos)
+    - `customer.document.type = cpf`
+  - Campos do cartao sao sincronizados para o formulario real de confirmacao do PrestaShop via hidden inputs no submit.
+  - `payment_card.tpl` mostra mensagem de erro amigavel (com detalhe tecnico) apenas quando houver falha no processamento.
 
 ## Fluxo de webhook atual
 
@@ -104,6 +118,19 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
   - Sempre tenta registrar log em `ps_cazcopay_webhook_log`.
   - Token em URI/query e mascarado no log persistido.
   - Atualizacao de payload no pedido preserva dados ja salvos (linha/link/expiracao) quando o postback nao traz esses campos.
+
+## BO - Transacoes
+
+- Aba `Transacoes` lista dados de `ps_cazcopay_order` com paginacao.
+- Colunas principais:
+  - Data
+  - Pedido
+  - Metodo
+  - Transacao
+  - Valor
+  - Status do pedido
+  - Payload
+- O payload abre em modal (botao `Ver`) para nao quebrar layout da tabela.
 
 ## Operacao diaria
 
