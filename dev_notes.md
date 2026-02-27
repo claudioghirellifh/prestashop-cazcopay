@@ -10,7 +10,10 @@
   - Valor mínimo do pedido para habilitar cada parcela.
 - Checkout aplica juros e filtra parcelas de acordo com o valor mínimo, atualizando o resumo (“Total do pedido”) conforme seleção.
 - Hooks de pagamento (`hookPaymentOptions`) retornam PIX, Boleto e Cartão com detalhes inline.
-- Transações PIX geram pedido automaticamente, usando estado “Aguardando pagamento PIX”, e armazenam QR Code/URL/expiração em `ps_cazcopay_order` para exibição posterior.
+- Transações PIX e Boleto geram pedido automaticamente:
+  - PIX usa estado “Aguardando pagamento PIX”.
+  - Boleto usa estado “Aguardando pagamento Boleto”.
+  - Ambos armazenam dados de cobrança em `ps_cazcopay_order` para exibição posterior no retorno/detalhe do pedido.
 - Carregamento de `CazcoPayConfig` e `CazcoPayLogger` protegido com fallback (`_PS_MODULE_DIR_` → `__DIR__`) e mensagens no `error_log` em caso de falha.
 - Templates em uso:  
   - `views/templates/hook/option_pix.tpl`  
@@ -31,15 +34,20 @@
 - ✅ Corrigido warning no FO do retorno PIX (`Non-numeric value encountered`) ao formatar valor, ajustando a expressão Smarty para aplicar `number_format` no resultado da divisão.
 - ✅ Campo "Expira em" no FO do PIX padronizado para formato BR (`dd/mm/aaaa` ou `dd/mm/aaaa HH:mm`) no backend.
 - ✅ Layout FO do PIX ajustado com mais respiro lateral (padding), preservando a largura alinhada ao grid da página para manter consistência visual com os blocos nativos.
+- ✅ Fluxo de boleto integrado ao `front/payment`: cria transação real, cria pedido, salva linha digitável/link/expiração e redireciona para `order-confirmation`.
+- ✅ Retorno do pedido e detalhe do pedido agora exibem informações de boleto quando `payment_method=boleto`.
+- ✅ Webhook passou a preservar dados já salvos de cobrança e preencher campos de `data.boleto`/`data.pix` quando disponíveis.
+- ✅ Boleto agora exibe também “Código de barras” no FO (retorno/detalhe), com fallback por conversão da linha digitável quando a API não retornar o `barcode`.
+- ✅ Boleto agora exibe a imagem escaneável do código de barras (barras preta/branca) no FO, gerada no backend via `TCPDFBarcode` (`I25`) pelo endpoint `controllers/front/barcode.php`.
+- ✅ Ajuste de UX no boleto: removido bloco numérico duplicado de “Código de barras” no FO; mantidos imagem escaneável e linha digitável.
 
 ## Próximos Passos Sugeridos
-1. **Integração real com a API da Cazco Pay**  
-   - PIX & Boleto: criar transação, exibir link/QR e mapear status do pedido.  
-   - Cartão: implementar tokenização (PK) + criação da transação, tratar respostas e erros.
+1. **Integração de Cartão com a API da Cazco Pay**  
+   - Implementar tokenização (PK) + criação da transação, tratar respostas e erros.
 2. **Postbacks/Webhooks**  
    - Criar endpoint para receber eventos e atualizar o status do pedido com idempotência.
 3. **Estados do pedido**  
-   - Definir status “Aguardando pagamento (PIX/Boleto)”, “Pago”, etc., com ícones.
+   - Revisar ícones/cores e eventuais e-mails dos estados “Aguardando pagamento (PIX/Boleto)” e “Pago”.
 4. **Logs e observabilidade**  
    - Manter `CazcoPayLogger::log` nos fluxos críticos.  
    - Verificar `docker compose logs ps_php` e `nginx/logs/sites/presta/error.log` após alterações.

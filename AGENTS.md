@@ -35,8 +35,9 @@
 ## Estrutura principal do modulo
 - Modulo principal: `cazcopay.php`
 - Controllers:
-  - `controllers/front/payment.php` (fluxo PIX atual)
+  - `controllers/front/payment.php` (fluxo PIX e Boleto)
   - `controllers/front/webhook.php` (endpoint de webhook)
+  - `controllers/front/barcode.php` (imagem de codigo de barras do boleto)
 - Classes:
   - `classes/CazcoPayApiClient.php`
   - `classes/CazcoPayConfig.php`
@@ -48,6 +49,7 @@
   - `views/templates/front/payment_pix.tpl`
   - `views/templates/front/payment_boleto.tpl`
   - `views/templates/front/payment_card.tpl`
+  - `views/templates/hook/order_detail_boleto.tpl`
 
 ## Boas praticas
 - Sempre revisar a doc da API ao iniciar uma nova sessao.
@@ -64,6 +66,13 @@
 - Corrigido warning no FO de valor PIX (`Non-numeric value encountered`) ajustando precedencia no Smarty com parenteses no calculo `amount/100`.
 - Expiração PIX no FO padronizada para BR (`dd/mm/aaaa` ou `dd/mm/aaaa HH:mm`) via formatação no backend (`getPixData`).
 - FO PIX recebeu mais respiro lateral (padding interno) nos templates de retorno, detalhe do pedido e tela PIX, mantendo largura alinhada ao restante da página (sem `max-width` centralizado).
+- Fluxo Boleto integrado no front/payment: cria transação real em `/transactions`, cria pedido em estado "Aguardando pagamento Boleto", salva linha digitável/link/expiração em `ps_cazcopay_order` e redireciona para `order-confirmation`.
+- Novo estado de pedido configurável para boleto (`CAZCO_OS_BOLETO`) com criação automática no módulo.
+- Tela de retorno (`payment_return.tpl`) e detalhe do pedido agora exibem dados de boleto (linha digitável, botão de cópia e link do boleto) quando `payment_method=boleto`.
+- Webhook ajustado para preservar dados já salvos de pagamento e aproveitar campos de `data.boleto`/`data.pix` quando disponíveis (evita apagar linha/link existentes).
+- Boleto no FO: agora exibe também `Código de barras` no retorno e no detalhe do pedido; quando a API não envia `barcode`, o módulo deriva a partir da linha digitável (47 -> 44 dígitos).
+- A imagem escaneável (barras preta/branca) é gerada no backend via `TCPDFBarcode` (`I25`) e servida pelo front controller `barcode`, evitando dependência externa.
+- Ajuste de UX no FO do boleto: removido bloco duplicado com código de barras numérico e botão de cópia; mantido somente imagem escaneável + linha digitável.
 
 ## Regras de atualizacao
 - A cada feature commitada, atualizar este `AGENTS.md`.

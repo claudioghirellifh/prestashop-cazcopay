@@ -313,13 +313,67 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
             return;
         }
 
+        $existing = method_exists($this->module, 'getPixData')
+            ? $this->module->getPixData((int) $order->id)
+            : null;
+        $paymentMethod = isset($data['paymentMethod']) ? strtolower(trim((string) $data['paymentMethod'])) : '';
+
+        $pixData = isset($data['pix']) && is_array($data['pix']) ? $data['pix'] : [];
+        $boletoData = isset($data['boleto']) && is_array($data['boleto']) ? $data['boleto'] : [];
+
+        $qrcode = '';
+        $url = isset($data['secureUrl']) ? (string) $data['secureUrl'] : '';
+        $expiration = null;
+
+        if (!empty($pixData)) {
+            $qrcode = (string) ($pixData['qrcode'] ?? '');
+            if (!empty($pixData['url'])) {
+                $url = (string) $pixData['url'];
+            }
+            if (!empty($pixData['expirationDate'])) {
+                $expiration = (string) $pixData['expirationDate'];
+            }
+            if ($paymentMethod === '') {
+                $paymentMethod = 'pix';
+            }
+        }
+
+        if (!empty($boletoData)) {
+            $qrcode = (string) ($boletoData['digitableLine'] ?? $boletoData['barcode'] ?? $qrcode);
+            if (!empty($boletoData['url'])) {
+                $url = (string) $boletoData['url'];
+            }
+            if (!empty($boletoData['expirationDate'])) {
+                $expiration = (string) $boletoData['expirationDate'];
+            }
+            if ($paymentMethod === '') {
+                $paymentMethod = 'boleto';
+            }
+        }
+
+        if ($qrcode === '' && !empty($existing['pix_qrcode'])) {
+            $qrcode = (string) $existing['pix_qrcode'];
+        }
+        if ($url === '' && !empty($existing['pix_url'])) {
+            $url = (string) $existing['pix_url'];
+        }
+        if ($expiration === null && !empty($existing['pix_expiration'])) {
+            $expiration = (string) $existing['pix_expiration'];
+        }
+        if ($paymentMethod === '' && !empty($existing['payment_method'])) {
+            $paymentMethod = (string) $existing['payment_method'];
+        }
+
         $paidAt = isset($data['paidAt']) ? (string) $data['paidAt'] : null;
+        if ($expiration === null && $paidAt) {
+            $expiration = $paidAt;
+        }
         $this->module->savePixData((int) $order->id, [
-            'payment_method' => isset($data['paymentMethod']) ? (string) $data['paymentMethod'] : '',
+            'payment_method' => $paymentMethod,
             'transaction_id' => $transactionId,
-            'qrcode' => '',
-            'url' => isset($data['secureUrl']) ? (string) $data['secureUrl'] : '',
-            'expiration' => $paidAt,
+            'qrcode' => $qrcode,
+            'url' => $url,
+            'expiration' => $expiration,
             'amount' => isset($data['amount']) ? (int) $data['amount'] : null,
             'payload' => $payload,
         ]);

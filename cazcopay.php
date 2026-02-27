@@ -765,12 +765,12 @@ class CazcoPay extends PaymentModule
             return '';
         }
 
-        $pixData = $this->getPixData((int) $order->id);
+        $paymentData = $this->getPixData((int) $order->id);
         $currency = new Currency((int) $order->id_currency);
 
         $this->smarty->assign([
             'shop_name' => $this->context->shop->name,
-            'cazco_order' => $pixData,
+            'cazco_order' => $paymentData,
             'currency_sign' => $currency->sign,
             'order_reference' => $order->reference,
         ]);
@@ -797,53 +797,94 @@ class CazcoPay extends PaymentModule
             return '';
         }
 
-        $pixData = $this->getPixData((int) $order->id);
-        if (!$pixData || $pixData['payment_method'] !== 'pix') {
-            return '';
-        }
-
-        $pixState = (int) Configuration::get(CazcoPayConfig::KEY_OS_PIX);
-        if ((int) $order->current_state !== $pixState) {
+        $paymentData = $this->getPixData((int) $order->id);
+        if (!$paymentData || empty($paymentData['payment_method'])) {
             return '';
         }
 
         $currency = new Currency((int) $order->id_currency);
 
         $this->smarty->assign([
-            'cazco_order' => $pixData,
+            'cazco_order' => $paymentData,
             'currency_sign' => $currency->sign,
             'order_reference' => $order->reference,
         ]);
 
-        return $this->fetch('module:cazcopay/views/templates/hook/order_detail_pix.tpl');
+        if ($paymentData['payment_method'] === 'pix') {
+            $pixState = (int) Configuration::get(CazcoPayConfig::KEY_OS_PIX);
+            if ((int) $order->current_state !== $pixState) {
+                return '';
+            }
+
+            return $this->fetch('module:cazcopay/views/templates/hook/order_detail_pix.tpl');
+        }
+
+        if ($paymentData['payment_method'] === 'boleto') {
+            $boletoState = (int) Configuration::get(CazcoPayConfig::KEY_OS_BOLETO);
+            if ((int) $order->current_state !== $boletoState) {
+                return '';
+            }
+
+            return $this->fetch('module:cazcopay/views/templates/hook/order_detail_boleto.tpl');
+        }
+
+        return '';
     }
 
     public function ensurePixOrderState()
     {
-        $idState = (int) Configuration::get(CazcoPayConfig::KEY_OS_PIX);
-        if ($idState && Validate::isLoadedObject(new OrderState($idState))) {
-            return $idState;
-        }
+        return $this->ensureOrderStateByConfigKey(
+            CazcoPayConfig::KEY_OS_PIX,
+            'Aguardando pagamento PIX',
+            '#3429A8'
+        );
+    }
 
-        if ($this->installOrderStates()) {
-            $idState = (int) Configuration::get(CazcoPayConfig::KEY_OS_PIX);
-            if ($idState && Validate::isLoadedObject(new OrderState($idState))) {
-                return $idState;
-            }
-        }
-
-        return 0;
+    public function ensureBoletoOrderState()
+    {
+        return $this->ensureOrderStateByConfigKey(
+            CazcoPayConfig::KEY_OS_BOLETO,
+            'Aguardando pagamento Boleto',
+            '#8A6D3B'
+        );
     }
 
     protected function installOrderStates()
     {
-        $idState = (int) Configuration::get(CazcoPayConfig::KEY_OS_PIX);
+        return $this->ensurePixOrderState() > 0
+            && $this->ensureBoletoOrderState() > 0;
+    }
+
+    protected function uninstallOrderStates()
+    {
+        $keys = [
+            CazcoPayConfig::KEY_OS_PIX,
+            CazcoPayConfig::KEY_OS_BOLETO,
+        ];
+        foreach ($keys as $configKey) {
+            $idState = (int) Configuration::get($configKey);
+            if ($idState <= 0) {
+                continue;
+            }
+
+            $orderState = new OrderState($idState);
+            if (Validate::isLoadedObject($orderState) && $orderState->module_name === $this->name) {
+                $orderState->delete();
+            }
+        }
+
+        return true;
+    }
+
+    private function ensureOrderStateByConfigKey($configKey, $stateName, $color)
+    {
+        $idState = (int) Configuration::get($configKey);
         if ($idState && Validate::isLoadedObject(new OrderState($idState))) {
-            return true;
+            return $idState;
         }
 
         $orderState = new OrderState();
-        $orderState->color = '#3429A8';
+        $orderState->color = (string) $color;
         $orderState->module_name = $this->name;
         $orderState->send_email = false;
         $orderState->hidden = false;
@@ -856,29 +897,16 @@ class CazcoPay extends PaymentModule
         $orderState->template = '';
 
         foreach (Language::getLanguages(false) as $lang) {
-            $orderState->name[(int) $lang['id_lang']] = $this->l('Aguardando pagamento PIX', 'cazcopay');
+            $orderState->name[(int) $lang['id_lang']] = $this->l($stateName, 'cazcopay');
         }
 
         if (!$orderState->add()) {
-            return false;
+            return 0;
         }
 
-        Configuration::updateValue(CazcoPayConfig::KEY_OS_PIX, (int) $orderState->id);
+        Configuration::updateValue($configKey, (int) $orderState->id);
 
-        return true;
-    }
-
-    protected function uninstallOrderStates()
-    {
-        $idState = (int) Configuration::get(CazcoPayConfig::KEY_OS_PIX);
-        if ($idState) {
-            $orderState = new OrderState($idState);
-            if (Validate::isLoadedObject($orderState) && $orderState->module_name === $this->name) {
-                $orderState->delete();
-            }
-        }
-
-        return true;
+        return (int) $orderState->id;
     }
 
     protected function installTables()
@@ -1011,6 +1039,8 @@ class CazcoPay extends PaymentModule
 
     public function savePixData($idOrder, array $data)
     {
+        $existing = $this->getPixData($idOrder);
+
         $expiration = null;
         if (!empty($data['expiration'])) {
             $timestamp = strtotime($data['expiration']);
@@ -1018,19 +1048,59 @@ class CazcoPay extends PaymentModule
                 $expiration = date('Y-m-d H:i:s', $timestamp);
             }
         }
+        if ($expiration === null && !empty($existing['pix_expiration'])) {
+            $expiration = (string) $existing['pix_expiration'];
+        }
+
+        $qrcode = isset($data['qrcode']) ? (string) $data['qrcode'] : '';
+        if ($qrcode === '' && !empty($existing['pix_qrcode'])) {
+            $qrcode = (string) $existing['pix_qrcode'];
+        }
+
+        $url = isset($data['url']) ? (string) $data['url'] : '';
+        if ($url === '' && !empty($existing['pix_url'])) {
+            $url = (string) $existing['pix_url'];
+        }
+
+        $amount = isset($data['amount']) ? (int) $data['amount'] : null;
+        if ($amount === null && isset($existing['amount'])) {
+            $amount = (int) $existing['amount'];
+        }
+
+        $payload = null;
+        if (array_key_exists('payload', $data)) {
+            $payload = json_encode($data['payload'], JSON_UNESCAPED_UNICODE);
+            if ($payload === false) {
+                $payload = '';
+            }
+        } elseif (isset($existing['payload'])) {
+            $payload = json_encode($existing['payload'], JSON_UNESCAPED_UNICODE);
+            if ($payload === false) {
+                $payload = '';
+            }
+        } else {
+            $payload = '';
+        }
+
+        $paymentMethod = isset($data['payment_method']) ? trim((string) $data['payment_method']) : '';
+        if ($paymentMethod === '' && !empty($existing['payment_method'])) {
+            $paymentMethod = (string) $existing['payment_method'];
+        }
+        if ($paymentMethod === '') {
+            $paymentMethod = 'pix';
+        }
 
         $row = [
             'id_order' => (int) $idOrder,
-            'payment_method' => pSQL($data['payment_method'] ?? 'pix'),
+            'payment_method' => pSQL($paymentMethod),
             'transaction_id' => pSQL($data['transaction_id'] ?? ''),
-            'pix_qrcode' => pSQL($data['qrcode'] ?? '', true),
-            'pix_url' => pSQL($data['url'] ?? '', true),
+            'pix_qrcode' => pSQL($qrcode, true),
+            'pix_url' => pSQL($url, true),
             'pix_expiration' => $expiration,
-            'amount' => isset($data['amount']) ? (int) $data['amount'] : null,
-            'payload' => pSQL(isset($data['payload']) ? json_encode($data['payload'], JSON_UNESCAPED_UNICODE) : '', true),
+            'amount' => $amount,
+            'payload' => pSQL((string) $payload, true),
         ];
 
-        $existing = $this->getPixData($idOrder);
         if ($existing) {
             Db::getInstance()->update('cazcopay_order', $row, 'id_order = ' . (int) $idOrder);
         } else {
@@ -1052,12 +1122,112 @@ class CazcoPay extends PaymentModule
         }
 
         $row['payload'] = $row['payload'] ? json_decode($row['payload'], true) : null;
-        $row['qrcode_image'] = $row['pix_qrcode'] ? $this->buildPixQrCodeUrl($row['pix_qrcode']) : null;
-        $row['pix_expiration_formatted'] = $row['pix_expiration']
+        $row['qrcode_image'] = ($row['payment_method'] === 'pix' && !empty($row['pix_qrcode']))
+            ? $this->buildPixQrCodeUrl($row['pix_qrcode'])
+            : null;
+        $row['payment_expiration_formatted'] = $row['pix_expiration']
             ? $this->formatPixExpirationForBr((string) $row['pix_expiration'])
+            : null;
+        $row['pix_expiration_formatted'] = $row['payment_expiration_formatted'];
+        $row['boleto_digitable_line'] = ($row['payment_method'] === 'boleto') ? (string) $row['pix_qrcode'] : null;
+        $row['boleto_barcode'] = ($row['payment_method'] === 'boleto')
+            ? $this->resolveBoletoBarcode($row)
+            : null;
+        $row['boleto_barcode_image_url'] = ($row['payment_method'] === 'boleto' && !empty($row['boleto_barcode']))
+            ? $this->buildBoletoBarcodeImageUrl((string) $row['boleto_barcode'])
             : null;
 
         return $row;
+    }
+
+    private function resolveBoletoBarcode(array $row)
+    {
+        $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
+        $boleto = isset($payload['boleto']) && is_array($payload['boleto']) ? $payload['boleto'] : [];
+
+        $barcode = '';
+        if (!empty($boleto['barcode'])) {
+            $barcode = preg_replace('/\D+/', '', (string) $boleto['barcode']);
+        }
+        if ($barcode === '' && !empty($boleto['barCode'])) {
+            $barcode = preg_replace('/\D+/', '', (string) $boleto['barCode']);
+        }
+        if ($barcode === '' && !empty($boleto['digitableLine'])) {
+            $barcode = preg_replace('/\D+/', '', (string) $boleto['digitableLine']);
+        }
+        if ($barcode === '' && !empty($boleto['line'])) {
+            $barcode = preg_replace('/\D+/', '', (string) $boleto['line']);
+        }
+
+        $converted = $this->convertDigitableLineToBarcode((string) ($row['pix_qrcode'] ?? ''));
+        if ($converted !== '') {
+            return $converted;
+        }
+
+        if ($barcode !== '') {
+            return $barcode;
+        }
+
+        $fallback = preg_replace('/\D+/', '', (string) ($row['pix_qrcode'] ?? ''));
+        return $fallback !== '' ? $fallback : null;
+    }
+
+    private function buildBoletoBarcodeImageUrl($barcode)
+    {
+        $digits = preg_replace('/\D+/', '', (string) $barcode);
+        if ($digits === '') {
+            return null;
+        }
+
+        return $this->context->link->getModuleLink(
+            $this->name,
+            'barcode',
+            [
+                'code' => $digits,
+                'w' => 2,
+                'h' => 72,
+            ],
+            true
+        );
+    }
+
+    private function convertDigitableLineToBarcode($digitableLine)
+    {
+        $line = preg_replace('/\D+/', '', (string) $digitableLine);
+        if ($line === '') {
+            return '';
+        }
+
+        // Ja veio no formato de codigo de barras.
+        if (strlen($line) === 44) {
+            return $line;
+        }
+
+        // Boleto bancario (linha digitavel com 47 digitos).
+        if (strlen($line) !== 47) {
+            return '';
+        }
+
+        $campo1 = substr($line, 0, 10);   // banco+moeda+5 livres+DV
+        $campo2 = substr($line, 10, 11);  // 10 livres+DV
+        $campo3 = substr($line, 21, 11);  // 10 livres+DV
+        $campo4 = substr($line, 32, 1);   // DV geral
+        $campo5 = substr($line, 33, 14);  // fator vencimento + valor
+
+        if ($campo1 === '' || $campo2 === '' || $campo3 === '' || $campo4 === '' || $campo5 === '') {
+            return '';
+        }
+
+        $campo1SemDv = substr($campo1, 0, 9);
+        $campo2SemDv = substr($campo2, 0, 10);
+        $campo3SemDv = substr($campo3, 0, 10);
+
+        return substr($campo1SemDv, 0, 4)
+            . $campo4
+            . $campo5
+            . substr($campo1SemDv, 4, 5)
+            . $campo2SemDv
+            . $campo3SemDv;
     }
 
     private function formatPixExpirationForBr($value)

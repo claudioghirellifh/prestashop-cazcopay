@@ -1,7 +1,5 @@
 <?php
 
-use Symfony\Component\VarDumper\VarDumper;
-
 class CazcoPayPaymentModuleFrontController extends ModuleFrontController
 {
     public $ssl = true;
@@ -10,7 +8,10 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
     {
         parent::initContent();
 
-        $method = Tools::getValue('method') ?: 'boleto';
+        $method = strtolower(trim((string) Tools::getValue('method', 'boleto')));
+        if ($method === '') {
+            $method = 'boleto';
+        }
         \CazcoPayLogger::log('Acessou front/payment', 1, [
             'method' => $method,
             'cart_id' => (int) $this->context->cart->id,
@@ -49,6 +50,7 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
                 $tpl = 'payment_card.tpl';
                 break;
             case 'boleto':
+                $this->handleBoleto($cart);
             default:
                 $tpl = 'payment_boleto.tpl';
                 break;
@@ -144,9 +146,140 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
     }
 
     /**
+     * Gera transação Boleto e prepara dados para o retorno do pedido.
+     */
+    protected function handleBoleto(Cart $cart)
+    {
+        try {
+            $payload = $this->buildBoletoPayload($cart);
+            \CazcoPayLogger::log('Criando transação Boleto', 1, [
+                'cart_id' => (int) $cart->id,
+                'amount' => isset($payload['amount']) ? (int) $payload['amount'] : null,
+            ]);
+
+            $client = new \CazcoPayApiClient();
+            $result = $client->createTransaction($payload);
+            $body = $result['body'];
+            $boleto = isset($body['boleto']) && is_array($body['boleto']) ? $body['boleto'] : [];
+            if (empty($boleto)) {
+                throw new Exception('Resposta da API sem dados de boleto.');
+            }
+
+            $transactionId = isset($body['id']) ? (string) $body['id'] : '';
+
+            \CazcoPayLogger::log('Transação Boleto criada com sucesso', 1, [
+                'cart_id' => (int) $cart->id,
+                'transaction_id' => $transactionId,
+                'amount' => (int) $payload['amount'],
+            ]);
+
+            $customer = new Customer((int) $cart->id_customer);
+            $currency = $this->context->currency;
+            $orderState = $this->module->ensureBoletoOrderState();
+            if (!$orderState) {
+                throw new Exception('Estado de pedido para Boleto não configurado.');
+            }
+
+            $this->module->validateOrder(
+                (int) $cart->id,
+                $orderState,
+                (float) $payload['amount'] / 100,
+                $this->module->l('Cazco Pay - Boleto', 'payment'),
+                null,
+                ['transaction_id' => $transactionId],
+                (int) $currency->id,
+                false,
+                $customer->secure_key
+            );
+
+            $idOrder = (int) $this->module->currentOrder;
+
+            $this->module->savePixData($idOrder, [
+                'payment_method' => 'boleto',
+                'transaction_id' => $transactionId,
+                'qrcode' => $this->extractBoletoDigitableLine($boleto),
+                'url' => $this->extractBoletoUrl($boleto, $body),
+                'expiration' => isset($boleto['expirationDate']) ? $boleto['expirationDate'] : null,
+                'amount' => (int) $payload['amount'],
+                'payload' => $body,
+            ]);
+
+            $redirectUrl = $this->context->link->getPageLink(
+                'order-confirmation',
+                true,
+                null,
+                [
+                    'id_cart' => (int) $cart->id,
+                    'id_module' => (int) $this->module->id,
+                    'id_order' => $idOrder,
+                    'key' => $customer->secure_key,
+                ]
+            );
+
+            Tools::redirect($redirectUrl);
+            exit;
+        } catch (\Exception $e) {
+            \CazcoPayLogger::log('Erro ao criar transação Boleto', 3, [
+                'cart_id' => (int) $cart->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            $this->context->smarty->assign([
+                'cazco_error' => $this->module->l('Não foi possível gerar o boleto no momento. Tente novamente em instantes ou selecione outro método de pagamento.'),
+            ]);
+        }
+    }
+
+    protected function extractBoletoDigitableLine(array $boleto)
+    {
+        $keys = ['digitableLine', 'line', 'barcode', 'barCode'];
+        foreach ($keys as $key) {
+            if (!empty($boleto[$key])) {
+                return (string) $boleto[$key];
+            }
+        }
+
+        return '';
+    }
+
+    protected function extractBoletoUrl(array $boleto, array $body)
+    {
+        $keys = ['url', 'secureUrl', 'link'];
+        foreach ($keys as $key) {
+            if (!empty($boleto[$key])) {
+                return (string) $boleto[$key];
+            }
+        }
+
+        foreach ($keys as $key) {
+            if (!empty($body[$key])) {
+                return (string) $body[$key];
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * Monta payload mínimo para criação da transação PIX.
      */
     protected function buildPixPayload(Cart $cart)
+    {
+        return $this->buildTransactionPayload($cart, 'pix');
+    }
+
+    /**
+     * Monta payload mínimo para criação da transação de boleto.
+     */
+    protected function buildBoletoPayload(Cart $cart)
+    {
+        return $this->buildTransactionPayload($cart, 'boleto');
+    }
+
+    /**
+     * Monta payload mínimo para criação da transação.
+     */
+    protected function buildTransactionPayload(Cart $cart, $paymentMethod)
     {
         $amount = (int) round($cart->getOrderTotal(true, Cart::BOTH) * 100);
         $customer = new Customer((int) $cart->id_customer);
@@ -174,6 +307,7 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
         }
 
         $metadata = [
+            'id_cart' => (int) $cart->id,
             'cart_id' => (int) $cart->id,
             'module_version' => $this->module->version,
             'shop_id' => (int) $this->context->shop->id,
@@ -181,7 +315,7 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
 
         $payload = [
             'amount' => $amount,
-            'paymentMethod' => 'pix',
+            'paymentMethod' => (string) $paymentMethod,
             'customer' => $customerData,
             'externalRef' => (string) $cart->id,
             'metadata' => $metadata,

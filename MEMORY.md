@@ -18,8 +18,9 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
   - `displayOrderDetail`
   - `moduleRoutes`
 - Metodos exibidos no checkout: PIX, Boleto e Cartao.
-- Fluxo de criacao real de transacao implementado no front controller para PIX.
+- Fluxo de criacao real de transacao implementado no front controller para PIX e Boleto.
 - Webhook implementado em `controllers/front/webhook.php` com validacao de token e log persistente.
+- Boleto no FO exibe imagem escaneavel (barras preta/branca) e linha digitavel no retorno e no detalhe do pedido.
 
 ## Estrutura tecnica
 
@@ -27,6 +28,7 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
 - Controllers:
   - `controllers/front/payment.php`
   - `controllers/front/webhook.php`
+  - `controllers/front/barcode.php`
 - Classes:
   - `classes/CazcoPayConfig.php`
   - `classes/CazcoPayApiClient.php`
@@ -39,6 +41,7 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
   - `views/templates/front/payment_boleto.tpl`
   - `views/templates/front/payment_card.tpl`
   - `views/templates/hook/order_detail_pix.tpl`
+  - `views/templates/hook/order_detail_boleto.tpl`
   - `views/templates/hook/payment_return.tpl`
 
 ## Banco de dados do modulo
@@ -66,6 +69,8 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
   - `CAZCO_WEBHOOK_SECRET`
 - Estado de pedido PIX:
   - `CAZCO_OS_PIX`
+- Estado de pedido Boleto:
+  - `CAZCO_OS_BOLETO`
 
 ## Fluxo de pagamento atual
 
@@ -73,7 +78,15 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
   - `controllers/front/payment.php` monta payload e chama `CazcoPayApiClient::createTransaction()` em `/transactions`.
   - Ao sucesso, cria pedido em estado "Aguardando pagamento PIX" e salva dados em `ps_cazcopay_order`.
   - Redireciona para `order-confirmation`.
-- Boleto e Cartao:
+- Boleto:
+  - `controllers/front/payment.php` monta payload e chama `CazcoPayApiClient::createTransaction()` em `/transactions` com `paymentMethod=boleto`.
+  - Ao sucesso, cria pedido em estado "Aguardando pagamento Boleto" e salva linha digitavel/link/expiracao em `ps_cazcopay_order`.
+  - Redireciona para `order-confirmation`.
+  - Codigo de barras prioriza `payload.boleto.barcode`; fallback converte linha digitavel (47 digitos) para formato de barras (44 digitos).
+  - A imagem de barras e gerada por `controllers/front/barcode.php` com `TCPDFBarcode` no tipo `I25`.
+  - Em cenarios de sandbox com codigo curto, a imagem e gerada em fallback (`C128`) para manter leitura por camera.
+  - Bloco numerico duplicado de codigo de barras foi removido do FO (retorno/detalhe), mantendo layout mais limpo.
+- Cartao:
   - Opcoes e templates existem; integracao completa com criacao real de transacao ainda precisa evoluir conforme backlog.
 
 ## Fluxo de webhook atual
@@ -90,6 +103,7 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
 - Persistencia:
   - Sempre tenta registrar log em `ps_cazcopay_webhook_log`.
   - Token em URI/query e mascarado no log persistido.
+  - Atualizacao de payload no pedido preserva dados ja salvos (linha/link/expiracao) quando o postback nao traz esses campos.
 
 ## Operacao diaria
 
