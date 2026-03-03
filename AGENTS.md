@@ -84,6 +84,7 @@
 - Backend (cartao): novo estado de pedido `Aguardando pagamento Cartao` (`CAZCO_OS_CARD`) com criacao automatica no modulo.
 - BO: nova aba `Transações` ao lado de `Logs postback`, com listagem paginada das transacoes criadas.
 - BO: coluna `Payload` da aba `Transações` abre em modal via botao `Ver` para manter layout da tabela.
+- BO: nova aba `Status` com de-para de status Cazco Pay -> PrestaShop (aplicado em transacao e postback). Status sem mapeamento nao alteram o pedido; na criacao de pedido sem mapa o fallback segue o metodo (PIX/Boleto/Cartao).
 
 ## Regras de atualizacao
 - A cada feature commitada, atualizar este `AGENTS.md`.

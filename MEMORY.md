@@ -24,7 +24,7 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
 - Cartao no checkout teve melhoria de UX/alinhamento em `views/templates/hook/option_card.tpl`.
 - Cartao no checkout possui campo `CPF do titular` com mascara no front e envio normalizado para API.
 - `views/templates/front/payment_card.tpl` atua como fallback de erro e orientacao quando necessario.
-- BO do modulo possui abas `Configuracoes`, `Logs postback` e `Transacoes`.
+- BO do modulo possui abas `Configuracoes`, `Logs postback`, `Transacoes` e `Status`.
 
 ## Estrutura tecnica
 
@@ -71,6 +71,8 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
   - `CAZCO_INSTALLMENT_<N>_MIN` (1..12)
 - Webhook:
   - `CAZCO_WEBHOOK_SECRET`
+- Mapeamento de status:
+  - `CAZCO_STATUS_MAP` (JSON)
 - Estado de pedido PIX:
   - `CAZCO_OS_PIX`
 - Estado de pedido Boleto:
@@ -80,6 +82,7 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
 
 ## Fluxo de pagamento atual
 
+- Status de transacao pode aplicar o de-para configurado na aba `Status` antes do fallback por metodo.
 - PIX:
   - `controllers/front/payment.php` monta payload e chama `CazcoPayApiClient::createTransaction()` em `/transactions`.
   - Ao sucesso, cria pedido em estado "Aguardando pagamento PIX" e salva dados em `ps_cazcopay_order`.
@@ -113,7 +116,8 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
   - Token invalido retorna `404`.
   - Metodo invalido retorna `405`.
 - Efeito de status:
-  - Se `status=paid`, sincroniza pedido para `PS_OS_PAYMENT`.
+  - Status recebidos sao avaliados no de-para configurado na aba `Status`.
+  - Sem mapeamento, nao altera o pedido.
 - Persistencia:
   - Sempre tenta registrar log em `ps_cazcopay_webhook_log`.
   - Token em URI/query e mascarado no log persistido.
@@ -131,6 +135,11 @@ Contexto vivo do modulo `cazcopay` (PrestaShop).
   - Status do pedido
   - Payload
 - O payload abre em modal (botao `Ver`) para nao quebrar layout da tabela.
+
+## BO - Status
+
+- Aba `Status` define o de-para entre status Cazco Pay e estados do PrestaShop.
+- Aplicado no retorno de transacao e no postback.
 
 ## Operacao diaria
 

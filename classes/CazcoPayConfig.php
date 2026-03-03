@@ -15,6 +15,7 @@ class CazcoPayConfig
     public const KEY_OS_BOLETO = 'CAZCO_OS_BOLETO';
     public const KEY_OS_CARD = 'CAZCO_OS_CARD';
     public const KEY_WEBHOOK_SECRET = 'CAZCO_WEBHOOK_SECRET';
+    public const KEY_STATUS_MAP = 'CAZCO_STATUS_MAP';
     public const KEY_DOCUMENT_SOURCE = 'CAZCO_DOCUMENT_SOURCE';
     public const KEY_DOCUMENT_CUSTOMER_FIELD = 'CAZCO_DOCUMENT_CUSTOMER_FIELD';
     public const KEY_DOCUMENT_ADDRESS_FIELD = 'CAZCO_DOCUMENT_ADDRESS_FIELD';
@@ -37,6 +38,7 @@ class CazcoPayConfig
         $ok = $ok && Configuration::updateValue(self::KEY_OS_BOLETO, 0);
         $ok = $ok && Configuration::updateValue(self::KEY_OS_CARD, 0);
         $ok = $ok && Configuration::updateValue(self::KEY_WEBHOOK_SECRET, Tools::passwdGen(32));
+        $ok = $ok && Configuration::updateValue(self::KEY_STATUS_MAP, '{}');
         $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_SOURCE, 'auto');
         $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_CUSTOMER_FIELD, '');
         $ok = $ok && Configuration::updateValue(self::KEY_DOCUMENT_ADDRESS_FIELD, '');
@@ -64,6 +66,7 @@ class CazcoPayConfig
             self::KEY_ENABLE_CARD,
             self::KEY_INSTALLMENTS_MAX,
             self::KEY_WEBHOOK_SECRET,
+            self::KEY_STATUS_MAP,
             self::KEY_DOCUMENT_SOURCE,
             self::KEY_DOCUMENT_CUSTOMER_FIELD,
             self::KEY_DOCUMENT_ADDRESS_FIELD,

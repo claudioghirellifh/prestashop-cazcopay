@@ -313,16 +313,11 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
         if ($status === '') {
             return;
         }
-
-        if ($status === 'paid') {
-            $paidState = (int) Configuration::get('PS_OS_PAYMENT');
-            if ($paidState > 0 && (int) $order->current_state !== $paidState) {
-                $history = new OrderHistory();
-                $history->id_order = (int) $order->id;
-                $history->changeIdOrderState($paidState, (int) $order->id);
-                $history->addWithemail(true);
-            }
+        if (!$this->module || !method_exists($this->module, 'applyMappedOrderStatus')) {
+            return;
         }
+
+        $this->module->applyMappedOrderStatus($order, $status, 'webhook');
     }
 
     private function saveCazcoPayPayload(Order $order, $transactionId, array $payload, array $data)

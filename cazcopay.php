@@ -99,7 +99,7 @@ class CazcoPay extends PaymentModule
     {
         $output = '';
         $activeTab = (string) Tools::getValue('cazco_tab', 'settings');
-        if (!in_array($activeTab, ['settings', 'logs', 'transactions'], true)) {
+        if (!in_array($activeTab, ['settings', 'logs', 'transactions', 'status'], true)) {
             $activeTab = 'settings';
         }
 
@@ -163,6 +163,15 @@ class CazcoPay extends PaymentModule
             $activeTab = 'logs';
         }
 
+        if (Tools::isSubmit('submitCazcoPayStatusMap')) {
+            $rawMap = Tools::getValue('cazco_status_map', []);
+            $savedMap = $this->sanitizeStatusMap($rawMap);
+            $encodedMap = $savedMap ? json_encode($savedMap, JSON_UNESCAPED_UNICODE) : '{}';
+            Configuration::updateValue(CazcoPayConfig::KEY_STATUS_MAP, (string) $encodedMap);
+            $output .= $this->displayConfirmation($this->l('Mapeamento de status atualizado com sucesso.'));
+            $activeTab = 'status';
+        }
+
         $output .= $this->renderAdminTabs($activeTab);
 
         if ($activeTab === 'logs') {
@@ -170,6 +179,9 @@ class CazcoPay extends PaymentModule
         }
         if ($activeTab === 'transactions') {
             return $output . $this->renderTransactionsTab();
+        }
+        if ($activeTab === 'status') {
+            return $output . $this->renderStatusTab();
         }
 
         return $output . $this->renderForm();
@@ -180,9 +192,10 @@ class CazcoPay extends PaymentModule
         $settingsUrl = $this->getAdminModuleUrl(['cazco_tab' => 'settings']);
         $logsUrl = $this->getAdminModuleUrl(['cazco_tab' => 'logs']);
         $transactionsUrl = $this->getAdminModuleUrl(['cazco_tab' => 'transactions']);
+        $statusUrl = $this->getAdminModuleUrl(['cazco_tab' => 'status']);
 
         return sprintf(
-            '<ul class="nav nav-tabs"><li class="%s"><a href="%s">%s</a></li><li class="%s"><a href="%s">%s</a></li><li class="%s"><a href="%s">%s</a></li></ul><div style="height:15px"></div>',
+            '<ul class="nav nav-tabs"><li class="%s"><a href="%s">%s</a></li><li class="%s"><a href="%s">%s</a></li><li class="%s"><a href="%s">%s</a></li><li class="%s"><a href="%s">%s</a></li></ul><div style="height:15px"></div>',
             $activeTab === 'settings' ? 'active' : '',
             Tools::safeOutput($settingsUrl),
             $this->l('Configurações'),
@@ -191,7 +204,10 @@ class CazcoPay extends PaymentModule
             $this->l('Logs postback'),
             $activeTab === 'transactions' ? 'active' : '',
             Tools::safeOutput($transactionsUrl),
-            $this->l('Transações')
+            $this->l('Transações'),
+            $activeTab === 'status' ? 'active' : '',
+            Tools::safeOutput($statusUrl),
+            $this->l('Status')
         );
     }
 
@@ -449,6 +465,261 @@ class CazcoPay extends PaymentModule
         $parts[] = '</div>';
 
         return implode('', $parts);
+    }
+
+    private function renderStatusTab()
+    {
+        $supported = $this->getSupportedStatusList();
+        $currentMap = $this->getStatusMap();
+        $statusUrl = $this->getAdminModuleUrl(['cazco_tab' => 'status']);
+        $orderStates = OrderState::getOrderStates((int) $this->context->language->id);
+
+        $options = [
+            ['id' => 0, 'name' => $this->l('Não alterar')],
+        ];
+        foreach ($orderStates as $state) {
+            $options[] = [
+                'id' => (int) $state['id_order_state'],
+                'name' => $state['name'],
+            ];
+        }
+
+        $rowsHtml = '';
+        foreach ($supported as $status) {
+            $selectedId = isset($currentMap[$status]) ? (int) $currentMap[$status] : 0;
+            $selectHtml = '<select name="cazco_status_map[' . Tools::safeOutput($status) . ']" class="form-control">';
+            foreach ($options as $opt) {
+                $selected = ((int) $opt['id'] === (int) $selectedId) ? ' selected="selected"' : '';
+                $selectHtml .= '<option value="' . (int) $opt['id'] . '"' . $selected . '>'
+                    . Tools::safeOutput($opt['name'])
+                    . '</option>';
+            }
+            $selectHtml .= '</select>';
+
+            $rowsHtml .= '<tr><td><code>' . Tools::safeOutput($status) . '</code></td><td>' . $selectHtml . '</td></tr>';
+        }
+
+        if ($rowsHtml === '') {
+            $rowsHtml = '<tr><td colspan="2" class="text-center">' . $this->l('Nenhum status disponível.') . '</td></tr>';
+        }
+
+        $help = $this->l('O mapeamento é aplicado no retorno da transação e no postback. Status sem de-para não alteram o pedido.');
+
+        return '<div class="panel">'
+            . '<h3><i class="icon-retweet"></i> ' . $this->l('Mapeamento de status Cazco Pay') . '</h3>'
+            . '<p class="help-block">' . $help . '</p>'
+            . '<form method="post" action="' . Tools::safeOutput($statusUrl) . '">'
+            . '<div class="table-responsive"><table class="table table-striped table-bordered">'
+            . '<thead><tr><th>' . $this->l('Status Cazco Pay') . '</th><th>' . $this->l('Status PrestaShop') . '</th></tr></thead>'
+            . '<tbody>' . $rowsHtml . '</tbody></table></div>'
+            . '<button type="submit" class="btn btn-primary" name="submitCazcoPayStatusMap" value="1">'
+            . $this->l('Salvar')
+            . '</button>'
+            . '</form>'
+            . '</div>';
+    }
+
+    private function getSupportedStatusList()
+    {
+        return [
+            'processing',
+            'authorized',
+            'paid',
+            'refunded',
+            'waiting_payment',
+            'refused',
+            'chargedback',
+            'in_protest',
+            'partially_paid',
+            'unknown',
+            'expired',
+            'canceled',
+            'in_analysis',
+        ];
+    }
+
+    private function normalizeStatus($status)
+    {
+        $value = strtolower(trim((string) $status));
+        if ($value === '') {
+            return '';
+        }
+        $value = str_replace('-', '_', $value);
+        $value = preg_replace('/\s+/', '_', $value);
+        $value = preg_replace('/_+/', '_', $value);
+        return $value;
+    }
+
+    private function isSupportedStatus($status)
+    {
+        return in_array($status, $this->getSupportedStatusList(), true);
+    }
+
+    private function getStatusMap()
+    {
+        $raw = (string) Configuration::get(CazcoPayConfig::KEY_STATUS_MAP);
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $map = [];
+        foreach ($decoded as $status => $idState) {
+            $normalized = $this->normalizeStatus($status);
+            if ($normalized === '' || !$this->isSupportedStatus($normalized)) {
+                continue;
+            }
+            $idState = (int) $idState;
+            if ($idState > 0) {
+                $map[$normalized] = $idState;
+            }
+        }
+
+        return $map;
+    }
+
+    private function sanitizeStatusMap($rawMap)
+    {
+        $map = [];
+        if (!is_array($rawMap)) {
+            return $map;
+        }
+
+        foreach ($this->getSupportedStatusList() as $status) {
+            $value = isset($rawMap[$status]) ? (int) $rawMap[$status] : 0;
+            if ($value > 0) {
+                $map[$status] = $value;
+            }
+        }
+
+        return $map;
+    }
+
+    private function getMappedOrderStateId($status)
+    {
+        $normalized = $this->normalizeStatus($status);
+        if ($normalized === '' || !$this->isSupportedStatus($normalized)) {
+            return 0;
+        }
+        $map = $this->getStatusMap();
+        return isset($map[$normalized]) ? (int) $map[$normalized] : 0;
+    }
+
+    private function isValidOrderStateId($idState)
+    {
+        if ((int) $idState <= 0) {
+            return false;
+        }
+        $state = new OrderState((int) $idState);
+        return Validate::isLoadedObject($state);
+    }
+
+    public function applyMappedOrderStatus(Order $order, $status, $source = '')
+    {
+        $normalized = $this->normalizeStatus($status);
+        if ($normalized === '' || !$this->isSupportedStatus($normalized)) {
+            CazcoPayLogger::log('Status ignorado (não suportado).', 2, [
+                'source' => (string) $source,
+                'status' => (string) $status,
+                'order_id' => (int) $order->id,
+            ]);
+            return false;
+        }
+
+        $idState = $this->getMappedOrderStateId($normalized);
+        if ($idState <= 0) {
+            CazcoPayLogger::log('Status sem mapeamento configurado.', 1, [
+                'source' => (string) $source,
+                'status' => $normalized,
+                'order_id' => (int) $order->id,
+            ]);
+            return false;
+        }
+
+        if (!$this->isValidOrderStateId($idState)) {
+            CazcoPayLogger::log('Status mapeado para estado inválido.', 2, [
+                'source' => (string) $source,
+                'status' => $normalized,
+                'order_id' => (int) $order->id,
+                'id_order_state' => (int) $idState,
+            ]);
+            return false;
+        }
+
+        if ((int) $order->current_state === (int) $idState) {
+            CazcoPayLogger::log('Status já aplicado no pedido.', 1, [
+                'source' => (string) $source,
+                'status' => $normalized,
+                'order_id' => (int) $order->id,
+                'id_order_state' => (int) $idState,
+            ]);
+            return false;
+        }
+
+        $history = new OrderHistory();
+        $history->id_order = (int) $order->id;
+        $ok = $history->changeIdOrderState((int) $idState, (int) $order->id);
+        if (!$ok) {
+            CazcoPayLogger::log('Falha ao atualizar status do pedido.', 3, [
+                'source' => (string) $source,
+                'status' => $normalized,
+                'order_id' => (int) $order->id,
+                'id_order_state' => (int) $idState,
+            ]);
+            return false;
+        }
+        $history->addWithemail(true);
+
+        CazcoPayLogger::log('Status do pedido atualizado via mapeamento.', 1, [
+            'source' => (string) $source,
+            'status' => $normalized,
+            'order_id' => (int) $order->id,
+            'id_order_state' => (int) $idState,
+        ]);
+
+        return true;
+    }
+
+    public function resolveInitialOrderStateForTransaction($method, $status)
+    {
+        $method = strtolower(trim((string) $method));
+        $normalizedStatus = $this->normalizeStatus($status);
+        $mappedState = $this->getMappedOrderStateId($normalizedStatus);
+
+        if ($mappedState > 0 && $this->isValidOrderStateId($mappedState)) {
+            return (int) $mappedState;
+        }
+
+        if ($mappedState > 0 && !$this->isValidOrderStateId($mappedState)) {
+            CazcoPayLogger::log('Status mapeado para estado inválido (fallback padrão).', 2, [
+                'source' => 'transaction',
+                'status' => $normalizedStatus,
+                'id_order_state' => (int) $mappedState,
+                'method' => $method,
+            ]);
+        }
+
+        if ($method === 'pix') {
+            return (int) $this->ensurePixOrderState();
+        }
+        if ($method === 'boleto') {
+            return (int) $this->ensureBoletoOrderState();
+        }
+        if ($method === 'card') {
+            if ($normalizedStatus === 'paid') {
+                $paidState = (int) Configuration::get('PS_OS_PAYMENT');
+                if ($paidState > 0) {
+                    return $paidState;
+                }
+            }
+            return (int) $this->ensureCardOrderState();
+        }
+
+        $fallback = (int) Configuration::get('PS_OS_PAYMENT');
+        return $fallback > 0 ? $fallback : 0;
     }
 
     protected function renderForm()

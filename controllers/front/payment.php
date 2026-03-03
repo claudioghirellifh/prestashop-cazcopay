@@ -82,6 +82,7 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
             }
 
             $pix = $body['pix'];
+            $status = isset($body['status']) ? strtolower(trim((string) $body['status'])) : '';
             $transactionId = isset($body['id']) ? $body['id'] : null;
 
             \CazcoPayLogger::log('Transação PIX criada com sucesso', 1, [
@@ -92,7 +93,12 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
 
             $customer = new Customer((int) $cart->id_customer);
             $currency = $this->context->currency;
-            $orderState = $this->module->ensurePixOrderState();
+            $orderState = $this->module->resolveInitialOrderStateForTransaction('pix', $status);
+            \CazcoPayLogger::log('Status da transação PIX resolvido.', 1, [
+                'cart_id' => (int) $cart->id,
+                'status' => $status,
+                'order_state' => (int) $orderState,
+            ]);
             if (!$orderState) {
                 throw new Exception('Estado de pedido para PIX não configurado.');
             }
@@ -168,6 +174,7 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
             }
 
             $transactionId = isset($body['id']) ? (string) $body['id'] : '';
+            $status = isset($body['status']) ? strtolower(trim((string) $body['status'])) : '';
 
             \CazcoPayLogger::log('Transação Boleto criada com sucesso', 1, [
                 'cart_id' => (int) $cart->id,
@@ -177,7 +184,12 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
 
             $customer = new Customer((int) $cart->id_customer);
             $currency = $this->context->currency;
-            $orderState = $this->module->ensureBoletoOrderState();
+            $orderState = $this->module->resolveInitialOrderStateForTransaction('boleto', $status);
+            \CazcoPayLogger::log('Status da transação Boleto resolvido.', 1, [
+                'cart_id' => (int) $cart->id,
+                'status' => $status,
+                'order_state' => (int) $orderState,
+            ]);
             if (!$orderState) {
                 throw new Exception('Estado de pedido para Boleto não configurado.');
             }
@@ -281,13 +293,12 @@ class CazcoPayPaymentModuleFrontController extends ModuleFrontController
             $customer = new Customer((int) $cart->id_customer);
             $currency = $this->context->currency;
 
-            $orderState = 0;
-            if ($status === 'paid') {
-                $orderState = (int) Configuration::get('PS_OS_PAYMENT');
-            }
-            if ($orderState <= 0) {
-                $orderState = $this->module->ensureCardOrderState();
-            }
+            $orderState = $this->module->resolveInitialOrderStateForTransaction('card', $status);
+            \CazcoPayLogger::log('Status da transação Cartão resolvido.', 1, [
+                'cart_id' => (int) $cart->id,
+                'status' => $status,
+                'order_state' => (int) $orderState,
+            ]);
             if ($orderState <= 0) {
                 throw new Exception('Estado de pedido para Cartão não configurado.');
             }

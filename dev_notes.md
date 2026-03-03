@@ -15,6 +15,7 @@
   - Boleto usa estado “Aguardando pagamento Boleto”.
   - Ambos armazenam dados de cobrança em `ps_cazcopay_order` para exibição posterior no retorno/detalhe do pedido.
 - Carregamento de `CazcoPayConfig` e `CazcoPayLogger` protegido com fallback (`_PS_MODULE_DIR_` → `__DIR__`) e mensagens no `error_log` em caso de falha.
+- BO agora inclui aba `Status` para de-para de status Cazco Pay -> PrestaShop.
 - Templates em uso:  
   - `views/templates/hook/option_pix.tpl`  
   - `views/templates/hook/option_boleto.tpl`  
@@ -40,6 +41,7 @@
 - ✅ Boleto agora exibe também “Código de barras” no FO (retorno/detalhe), com fallback por conversão da linha digitável quando a API não retornar o `barcode`.
 - ✅ Boleto agora exibe a imagem escaneável do código de barras (barras preta/branca) no FO, gerada no backend via `TCPDFBarcode` (`I25`) pelo endpoint `controllers/front/barcode.php`.
 - ✅ Ajuste de UX no boleto: removido bloco numérico duplicado de “Código de barras” no FO; mantidos imagem escaneável e linha digitável.
+- ✅ Nova aba `Status` no BO com de-para de status Cazco Pay -> PrestaShop, aplicado no retorno da transação e no postback.
 
 ## Próximos Passos Sugeridos
 1. **Integração de Cartão com a API da Cazco Pay**  
@@ -48,10 +50,12 @@
    - Criar endpoint para receber eventos e atualizar o status do pedido com idempotência.
 3. **Estados do pedido**  
    - Revisar ícones/cores e eventuais e-mails dos estados “Aguardando pagamento (PIX/Boleto)” e “Pago”.
-4. **Logs e observabilidade**  
+4. **Mapeamento de status**  
+   - Configurar o de-para na aba `Status` conforme os status esperados em produção.
+5. **Logs e observabilidade**  
    - Manter `CazcoPayLogger::log` nos fluxos críticos.  
    - Verificar `docker compose logs ps_php` e `nginx/logs/sites/presta/error.log` após alterações.
-5. **Cache**  
+6. **Cache**  
    - Sempre limpar (`docker compose exec ps_php rm -rf /var/www/presta/var/cache/*`) depois de editar arquivos PHP/Templates.
 
 ## Como Retomar a Próxima Sessão
