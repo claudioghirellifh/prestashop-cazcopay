@@ -176,9 +176,13 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
                 'payload_preview' => $preview,
             ]);
 
+            if (trim($this->rawPayload) === '') {
+                throw new InvalidArgumentException('Payload vazio.');
+            }
+
             $payload = json_decode($this->rawPayload, true);
             if (!is_array($payload)) {
-                throw new Exception('Payload inválido.');
+                throw new InvalidArgumentException('Payload inválido.');
             }
 
             $data = isset($payload['data']) && is_array($payload['data']) ? $payload['data'] : [];
@@ -210,6 +214,20 @@ class CazcoPayWebhookModuleFrontController extends ModuleFrontController
             header('Content-Type: application/json');
             header('Cache-Control: no-store, no-cache, must-revalidate');
             echo json_encode(['status' => 'ok'], JSON_UNESCAPED_UNICODE);
+            exit;
+        } catch (\InvalidArgumentException $e) {
+            $this->persistPostbackLog(400, 'invalid_payload', [
+                'token_valid' => $this->providedToken !== '' && $this->providedToken === $this->secret ? 1 : 0,
+                'payment_status' => $status,
+                'transaction_id' => $transactionId,
+                'object_id' => $objectId,
+                'id_order' => $orderId,
+                'error_message' => $e->getMessage(),
+                'payload' => $this->rawPayload,
+            ]);
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'invalid_payload'], JSON_UNESCAPED_UNICODE);
             exit;
         } catch (\Throwable $e) {
             $this->persistPostbackLog(500, 'internal_error', [
